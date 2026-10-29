@@ -67,6 +67,13 @@ login:
   shared_device_users: 5
   shared_device_damping: 0.4
   usual_hour_min_share: 0.05
+  ip_reputation:
+    enabled: true
+    feed_name: Campus Threat Intelligence Feed
+    feed_date: '2026-10-29'
+    feed_path: backend/config/ip_reputation.json
+    max_age_days: 7
+    refresh_hours: 24
   signals:
     new_country:
       points: 20

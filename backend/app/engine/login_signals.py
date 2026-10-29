@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 
 from . import geo
 from .baseline import Baseline, build_baseline, local_hour
+from .ip_reputation import get_feed
 from .scoring import apply_group_caps, make, rnd, side_total
 from .types import Evidence, GlobalContext, LoginEvent
 
@@ -167,10 +168,17 @@ def analyze_logins(history: Iterable[LoginEvent], cfg: dict, ctx: GlobalContext,
             add("multi_account_ip", "One IP targeting many accounts", f"{ev.ip} attempted {n_users} different accounts in the window", ev.ts.isoformat())
             break
 
-    # known attack IP from the threat feed (RBA dataset flag or your own reputation feed)
+    # known attack IP from the threat feed (reputation feed lookup or RBA dataset flag)
+    rep_feed = get_feed(cfg)
     for ev in window:
-        if ev.is_attack_ip:
-            add("attack_ip", "IP is on the attack-IP list", f"{ev.ip or 'unknown IP'} is flagged by the threat feed", ev.ts.isoformat())
+        match = rep_feed.lookup(ip=ev.ip, asn=ev.asn, as_of=as_of) if rep_feed else None
+        if match is not None or ev.is_attack_ip:
+            feed_name = match.feed_name if match else (rep_feed.feed_name if rep_feed else "Campus Threat Intelligence Feed")
+            feed_date = match.feed_date if match else (rep_feed.feed_date if rep_feed else as_of.strftime("%Y-%m-%d"))
+            detail = match.detail if match else f"{ev.ip or 'unknown IP'} is flagged on threat feed: {feed_name} ({feed_date})"
+            add("attack_ip", "IP is on the attack-IP list", detail, ev.ts.isoformat())
+            if not best_items:
+                best_login = ev
             break
 
     items = apply_group_caps(items, lc["group_caps"])

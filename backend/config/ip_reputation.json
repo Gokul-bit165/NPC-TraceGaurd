@@ -1,0 +1,27 @@
+{
+  "feed_name": "Campus Threat Intelligence Feed",
+  "feed_date": "2026-10-29",
+  "description": "Known malicious IPs, bulletproof hosting ASNs, and botnet networks",
+  "ips": [
+    "185.220.101.7",
+    "198.51.100.42",
+    "203.0.113.195",
+    "45.154.255.89",
+    "91.240.118.172",
+    "194.26.29.112"
+  ],
+  "cidrs": [
+    "198.51.100.0/24",
+    "203.0.113.0/24"
+  ],
+  "asns": [
+    65500,
+    65501
+  ],
+  "network_owners": [
+    "bulletproof",
+    "badhost",
+    "tor exit",
+    "shadowbotnet"
+  ]
+}

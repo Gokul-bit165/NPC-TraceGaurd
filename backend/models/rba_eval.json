@@ -1,0 +1,182 @@
+{
+  "behavioural_only": {
+    "source": "RBA data set (artificial values; see README)",
+    "users": 6016,
+    "label_note": "Behavioural signals only: TraceGuard's attack-IP signal is switched off so the score cannot read the label.",
+    "attack_ip_signal": false,
+    "impossible_travel_disabled": false,
+    "account_takeover_rows_with_no_or_thin_history": 15,
+    "all_rows": {
+      "rows": 12042,
+      "attack_ip_rows": 1004,
+      "account_takeover_rows": 16,
+      "auc_attack_ip": 0.504,
+      "auc_account_takeover": 0.5646,
+      "auc_attack_ip_failed_login_rule": 0.5617,
+      "auc_account_takeover_failed_login_rule": 0.3721,
+      "attack_ip_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0047,
+        "precision": 0.1053,
+        "recall": 0.006
+      },
+      "attack_ip_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0002,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "account_takeover_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0047,
+        "precision": 0.0175,
+        "recall": 0.0625
+      },
+      "account_takeover_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0002,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    "established_history_rows": {
+      "rows": 703,
+      "attack_ip_rows": 30,
+      "account_takeover_rows": 1,
+      "auc_attack_ip": 0.5579,
+      "auc_account_takeover": 0.2386,
+      "auc_attack_ip_failed_login_rule": 0.5413,
+      "auc_account_takeover_failed_login_rule": 0.4395,
+      "attack_ip_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.027,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "attack_ip_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0028,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "account_takeover_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.027,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "account_takeover_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0028,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    "signals_fired": {
+      "L_NEW_IP": 1179,
+      "L_NEW_DEVICE": 655,
+      "L_NEW_CITY": 527,
+      "L_ODD_HOUR": 243,
+      "L_SUCCESS_AFTER_FAILURES": 69,
+      "L_IMPOSSIBLE_TRAVEL": 46,
+      "L_NEW_COUNTRY": 45,
+      "L_MULTI_ACCOUNT_IP": 40,
+      "L_FAILED_BURST": 20
+    }
+  },
+  "with_threat_feed_signal": {
+    "source": "RBA data set (artificial values; see README)",
+    "users": 6016,
+    "label_note": "Attack-IP signal ON (a threat feed). The Is Attack IP label is then partly circular; read only the account-takeover numbers.",
+    "attack_ip_signal": true,
+    "impossible_travel_disabled": false,
+    "account_takeover_rows_with_no_or_thin_history": 15,
+    "all_rows": {
+      "rows": 12042,
+      "attack_ip_rows": 1004,
+      "account_takeover_rows": 16,
+      "auc_attack_ip": 0.9885,
+      "auc_account_takeover": 0.7411,
+      "auc_attack_ip_failed_login_rule": 0.5617,
+      "auc_account_takeover_failed_login_rule": 0.3721,
+      "attack_ip_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0066,
+        "precision": 0.3375,
+        "recall": 0.0269
+      },
+      "attack_ip_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0007,
+        "precision": 0.625,
+        "recall": 0.005
+      },
+      "account_takeover_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0066,
+        "precision": 0.0375,
+        "recall": 0.1875
+      },
+      "account_takeover_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0007,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    "established_history_rows": {
+      "rows": 703,
+      "attack_ip_rows": 30,
+      "account_takeover_rows": 1,
+      "auc_attack_ip": 0.9597,
+      "auc_account_takeover": 0.2315,
+      "auc_attack_ip_failed_login_rule": 0.5413,
+      "auc_account_takeover_failed_login_rule": 0.4395,
+      "attack_ip_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0299,
+        "precision": 0.0952,
+        "recall": 0.0667
+      },
+      "attack_ip_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0028,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "account_takeover_at_medium": {
+        "threshold": 30,
+        "flagged_share": 0.0299,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      "account_takeover_at_high": {
+        "threshold": 60,
+        "flagged_share": 0.0028,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    "signals_fired": {
+      "L_NEW_IP": 1179,
+      "L_ATTACK_IP": 1016,
+      "L_NEW_DEVICE": 655,
+      "L_NEW_CITY": 527,
+      "L_ODD_HOUR": 243,
+      "L_SUCCESS_AFTER_FAILURES": 69,
+      "L_IMPOSSIBLE_TRAVEL": 46,
+      "L_NEW_COUNTRY": 45,
+      "L_MULTI_ACCOUNT_IP": 40,
+      "L_FAILED_BURST": 20
+    }
+  },
+  "input": {
+    "file": "rba_head.csv",
+    "max_rows": null,
+    "sample_users": 6000,
+    "rows_scored": 12042,
+    "from": "2020-02-03T12:44:24.849000+00:00",
+    "to": "2020-02-23T13:36:53.298000+00:00",
+    "sampling": "every account with an account-takeover row, plus a deterministic hash sample of other accounts, all of their rows kept"
+  }
+}

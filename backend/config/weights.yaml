@@ -1,0 +1,91 @@
+# TraceGuard scoring configuration.
+# Every number here is a starting value chosen by the team, not a sourced figure.
+# Calibrate on your own data; the scenario tests in tests/test_scenarios.py must still pass.
+version: 1
+
+campus:
+  name: Kestrel University
+  timezone_offset_minutes: 330          # IST; used for the "unusual hour" signal
+  protected_domains: [kestrel.edu]
+  # Registrable domains that are legitimately allowed to use a protected brand word.
+  trusted_domains:
+    - kestrel.edu
+    - microsoft.com
+    - office.com
+    - office365.com
+    - outlook.com
+    - microsoftonline.com
+    - google.com
+    - googleapis.com
+    - gmail.com
+    - zoom.us
+    - linkedin.com
+    - dropbox.com
+    - docusign.com
+    - paypal.com
+    - instructure.com
+  protected_brands: [kestrel, microsoft, office365, outlook, google, paypal, linkedin, dropbox, docusign, zoom, canvas, moodle, blackboard]
+
+bands:            # inclusive score ranges, from the team's PDF
+  low: [0, 29]
+  medium: [30, 59]
+  high: [60, 79]
+  critical: [80, 100]
+
+correlation:
+  uplift: 0.5               # S = min(100, max(E,L) + uplift * min(E,L)), shown as its own ledger line
+  window_hours: 72          # login must follow the email within this window to correlate
+  email_only_ceiling: 79    # a message alone stops at the top of High: Critical needs a suspicious login after it
+  min_email_score: 30       # both sides must be at least Medium on their own before they count as linked,
+  min_login_score: 30       # so a typo burst after a newsletter cannot escalate a case
+
+login:
+  window_hours: 24          # logins in this window are judged against the history before it
+  min_history_logins: 5     # below this the baseline is "thin": baseline-relative points are halved and the case is flagged
+  thin_history_factor: 0.5
+  travel_speed_kmh: 900
+  min_travel_km: 300
+  burst_failures: 5
+  burst_minutes: 10
+  success_after_failures: 3
+  success_after_minutes: 30
+  multi_account_users: 3    # one IP hitting this many distinct accounts
+  shared_device_users: 5    # a device key seen for this many distinct users counts as shared (lab machine)
+  shared_device_damping: 0.4
+  usual_hour_min_share: 0.05
+  signals:
+    new_country:            {points: 20, group: location}
+    new_city:               {points: 6,  group: location}
+    new_ip:                 {points: 4,  group: location}
+    impossible_travel:      {points: 45, group: location}
+    new_device:             {points: 12, group: context}
+    odd_hour:               {points: 5,  group: context}
+    failed_burst:           {points: 20, group: credential_attack}
+    success_after_failures: {points: 25, group: credential_attack}
+    multi_account_ip:       {points: 15, group: credential_attack}
+    attack_ip:              {points: 20, group: credential_attack}
+  group_caps: {location: 70, context: 15, credential_attack: 40}
+
+email:
+  window_hours: 168
+  signals:
+    auth_failure:      {points: 20, group: authenticity}
+    reply_to_mismatch: {points: 15, group: authenticity}
+    lookalike_domain:  {points: 20, group: impersonation}
+    link_mismatch:     {points: 12, group: links}
+    risky_link:        {points: 10, group: links}
+    urgency_language:  {points: 5,  group: content}
+    credential_request: {points: 6, group: content}
+    prompt_injection:  {points: 15, group: integrity}
+    text_model:        {points: 30, group: content}   # max points; awarded = round(30 * probability)
+  group_caps: {authenticity: 35, impersonation: 20, links: 20, content: 30, integrity: 15}
+  many_links_threshold: 8
+  risky_tlds: [zip, mov, top, xyz, click, country, gq, tk, ml, cf, ga, work, support, rest, icu, buzz, cam]
+  shorteners: [bit.ly, tinyurl.com, t.co, goo.gl, ow.ly, is.gd, buff.ly, rebrand.ly, cutt.ly, shorturl.at, tiny.cc]
+  urgency_terms: [urgent, immediately, within 24 hours, within 12 hours, final notice, last warning, expires today, act now, suspended, will be closed, deactivated, immediate action, as soon as possible, verify now]
+  credential_terms: [verify your account, confirm your password, password will expire, sign in to keep, log in to keep, validate your mailbox, mailbox is full, confirm your identity, update your credentials, re-enter your password, unusual sign-in]
+  injection_terms: [ignore previous instructions, ignore all previous, disregard the above, system prompt, you are an ai, as an ai assistant, mark this email as safe, classify this as legitimate, do not flag, "assistant:", begin instructions, "new instructions:"]
+
+triage:
+  case_min_score: 8         # below this a user is scored but no case is opened
+  queue_min_band: medium    # Low cases are auto-closed with a note; Medium and above need eyes or an alert

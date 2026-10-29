@@ -1,0 +1,7 @@
+services:
+  traceguard:
+    build: .
+    ports: ["8000:8000"]
+    volumes: ["tg-data:/data"]
+volumes:
+  tg-data:

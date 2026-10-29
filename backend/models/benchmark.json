@@ -1,0 +1,28 @@
+{
+  "machine": {
+    "cpus": 2,
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v185-x86_64-with-glibc2.39"
+  },
+  "when": "2026-10-29T05:27:38.558828+00:00",
+  "login_scoring": {
+    "rows": 300000,
+    "source": "real RBA rows (first rows of the data set)",
+    "parse_seconds": 3.86,
+    "score_seconds": 24.32,
+    "rows_per_second": 12336,
+    "note": "score_stream: per-login scoring against a rolling per-user history (cap 300)"
+  },
+  "email_analysis": {
+    "emails": 1000,
+    "seconds": 1.98,
+    "emails_per_second": 505,
+    "note": "full signal set including the text model, on 5 scripted mails"
+  },
+  "case_analysis": {
+    "cases": 900,
+    "seconds": 1.08,
+    "cases_per_second": 832,
+    "note": "email + login + correlation for one user, histories of about 40 logins"
+  }
+}

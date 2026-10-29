@@ -8,3 +8,5 @@ web:
 	cd frontend && npm run build
 run:
 	cd backend && uvicorn app.main:app --port 8000
+load-test:
+	cd backend && python scripts/load_test.py

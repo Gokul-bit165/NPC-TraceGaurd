@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from .engine import config as cfgmod
 from .engine import explain, respond
+from .engine.counter import get_cross_user_counter
 from .engine.email_signals import analyze_email
 from .engine.pipeline import analyze_case
 from .engine.types import CaseResult, EmailEvent, GlobalContext, Link, LoginEvent
@@ -77,6 +78,7 @@ def add_login(db: Session, ev: LoginEvent, risk: int = 0, band: str = "low", fla
     row = LoginRow(user_id=ev.user_id, ts=ev.ts, ip=ev.ip, country=ev.country, city=ev.city, asn=ev.asn, device=ev.device,
                    success=ev.success, is_attack_ip=ev.is_attack_ip, risk=risk, risk_band=band, flags=",".join(flags or []))
     db.add(row)
+    get_cross_user_counter().record_login(ev.user_id, ev.ts, ev.ip, ev.device, ev.success)
     return row
 
 
@@ -94,22 +96,10 @@ def score_new_login(db: Session, ev: LoginEvent, cfg: dict) -> tuple[int, str, l
 
 
 def ctx_for(db: Session, user_id: str, window_events: list[LoginEvent], as_of: datetime, extra: Optional[list[LoginEvent]] = None) -> GlobalContext:
-    start = as_of - timedelta(hours=24)
-    ips = {e.ip for e in window_events if e.ip and start < e.ts <= as_of}
-    ctx = GlobalContext()
-    unsaved = {(e.ip, e.device, e.success) for e in (extra or [])}     # events not yet in the table still count for this user
-    for ip in ips:
-        users = set(db.scalars(select(LoginRow.user_id).where(LoginRow.ip == ip, LoginRow.ts > start, LoginRow.ts <= as_of).distinct()).all())
-        if any(u[0] == ip for u in unsaved):
-            users.add(user_id)
-        ctx.ip_user_counts[ip] = len(users)
-    pairs = {(e.device, e.ip) for e in window_events if e.device and e.ip and e.success and start < e.ts <= as_of}
-    for dev, ip in pairs:
-        users = set(db.scalars(select(LoginRow.user_id).where(LoginRow.device == dev, LoginRow.ip == ip, LoginRow.success.is_(True)).distinct()).all())
-        if (ip, dev, True) in unsaved:
-            users.add(user_id)
-        ctx.device_user_counts[f"{dev}@{ip}"] = len(users)
-    return ctx
+    counter = get_cross_user_counter()
+    if not counter.is_warmed():
+        counter.warmup_from_db(db)
+    return counter.build_context_for_user(user_id, window_events, as_of, extra)
 
 
 def add_email(db: Session, em: EmailEvent, cfg: Optional[dict] = None) -> tuple[EmailRow, "object"]:
@@ -218,6 +208,10 @@ def reanalyze_user(db: Session, user_id: str, actor: str = "system", scenario_ke
               {"score": res.score, "band": res.band, "from_band": old_band})
         if old_band and cfgmod.band_rank(res.band) > cfgmod.band_rank(old_band):
             audit(db, "traceguard", "system", "escalated", case.id, {"from": old_band, "to": res.band})
+        if res.band in ("high", "critical"):
+            if existing is None or (old_band and old_band not in ("high", "critical")):
+                from .engine.notifications import notify_analysts_case
+                notify_analysts_case(case, user, headline=narrative.get("headline", ""))
     return case
 
 
@@ -291,3 +285,317 @@ def set_verdict(db: Session, case_id: int, verdict: str, actor: str, role: str) 
     case.updated_at = utcnow()
     audit(db, actor, role, "verdict", case_id, {"verdict": verdict})
     return case
+
+
+def undo_action(db: Session, case_id: int, action_id: int, actor: str, role: str, note: str = "") -> ActionRow:
+    """Undo an approved action if it is reversible."""
+    a = db.get(ActionRow, action_id)
+    if a is None or a.case_id != case_id:
+        raise WorkflowError("action not found", 404)
+    if not a.reversible:
+        raise WorkflowError(f"'{a.label}' is not reversible and cannot be undone", 400)
+    if a.status not in {"approved", "auto_done"}:
+        raise WorkflowError(f"action is {a.status}, only approved actions can be undone", 409)
+
+    # Check if another approved action depends on this action
+    dependents = db.scalars(
+        select(ActionRow).where(ActionRow.case_id == case_id, ActionRow.depends_on == a.code, ActionRow.status.in_({"approved", "auto_done"}))
+    ).all()
+    if dependents:
+        dep_labels = ", ".join(f"'{d.label}'" for d in dependents)
+        raise WorkflowError(f"cannot undo '{a.label}' while {dep_labels} remains approved; undo {dep_labels} first", 409)
+
+    old_status = a.status
+    a.status = "proposed"
+    a.decided_by = None
+    a.decided_at = None
+    a.note = f"Undone by {actor}: {note}".strip() if note else f"Undone by {actor}"
+
+    case = db.get(CaseRow, case_id)
+    if case and case.status == "resolved":
+        case.status = "investigating"
+        case.resolved_at = None
+        case.updated_at = utcnow()
+
+    audit(db, actor, role, "action_undone", case_id, {"action": a.code, "previous_status": old_status, "note": note})
+    return a
+
+
+def get_campaign_details(db: Session, campaign_key: str) -> dict:
+    """Retrieve full campaign details, sample sender/subject/links, and list of affected recipients."""
+    if not campaign_key:
+        raise WorkflowError("campaign_key required", 400)
+
+    emails = db.scalars(
+        select(EmailRow).where(EmailRow.campaign_key == campaign_key).order_by(EmailRow.received_at.asc())
+    ).all()
+    if not emails:
+        raise WorkflowError(f"campaign '{campaign_key}' not found", 404)
+
+    sample = emails[0]
+    sender_domain = sample.sender.split("@")[-1].strip("<> ") if "@" in sample.sender else sample.sender
+
+    # Aggregate unique links across campaign emails
+    all_links = set()
+    for em in emails:
+        for l in json.loads(em.links_json or "[]"):
+            if isinstance(l, dict) and l.get("href"):
+                all_links.add(l["href"])
+
+    # Collect recipient user details
+    recipient_ids = list(dict.fromkeys(em.user_id for em in emails))
+    users = {u.id: u for u in db.scalars(select(UserRow).where(UserRow.id.in_(recipient_ids))).all()}
+    cases = {c.user_id: c for c in db.scalars(select(CaseRow).where(CaseRow.user_id.in_(recipient_ids))).all()}
+
+    recipients = []
+    for em in emails:
+        uid = em.user_id
+        u = users.get(uid)
+        c = cases.get(uid)
+        recipients.append({
+            "user_id": uid,
+            "name": u.name if u else uid,
+            "email": u.email if u else "",
+            "dept": u.dept if u else "",
+            "email_id": em.id,
+            "received_at": em.received_at.isoformat(),
+            "case_id": c.id if c else None,
+            "score": c.score if c else em.risk,
+            "band": c.band if c else em.risk_band,
+            "status": c.status if c else "no_case",
+        })
+
+    # Check whether remediation actions were applied
+    remediated_count = 0
+    can_undo_count = 0
+    for r in recipients:
+        cid = r["case_id"]
+        if cid:
+            acts = db.scalars(select(ActionRow).where(ActionRow.case_id == cid)).all()
+            if any(a.code in ("block_sender_domain", "remove_from_mailboxes") and a.status == "approved" for a in acts):
+                remediated_count += 1
+            if any(a.code in ("block_sender_domain", "block_urls") and a.status == "approved" and a.reversible for a in acts):
+                can_undo_count += 1
+
+    return {
+        "campaign_key": campaign_key,
+        "sender": sample.sender,
+        "sender_domain": sender_domain,
+        "subject": sample.subject,
+        "links": sorted(all_links),
+        "total_recipients": len(recipient_ids),
+        "recipients": recipients,
+        "actions": [
+            {"code": "block_sender_domain", "label": f"Block sender domain ({sender_domain})", "reversible": True},
+            {"code": "block_urls", "label": f"Block {len(all_links)} campaign URLs", "reversible": True},
+            {"code": "remove_from_mailboxes", "label": f"Purge message from all recipient mailboxes", "reversible": False},
+            {"code": "send_user_alert", "label": "Alert every recipient with verification check", "reversible": True},
+        ],
+        "remediated": remediated_count > 0,
+        "can_undo": can_undo_count > 0,
+    }
+
+
+def approve_campaign_action(
+    db: Session,
+    campaign_key: str,
+    actor: str,
+    role: str,
+    excluded_user_ids: Optional[list[str]] = None,
+    user_ids: Optional[list[str]] = None,
+    note: str = "",
+) -> dict:
+    """Approve unified campaign action: block sender & links, purge messages, and alert every recipient.
+
+    Allows removing users from the list before approval, and records exactly one audit entry per user.
+    """
+    details = get_campaign_details(db, campaign_key)
+    excluded = set(excluded_user_ids or [])
+    all_recipients = details["recipients"]
+
+    # Filter to included users
+    if user_ids is not None:
+        target_recipients = [r for r in all_recipients if r["user_id"] in user_ids and r["user_id"] not in excluded]
+    else:
+        target_recipients = [r for r in all_recipients if r["user_id"] not in excluded]
+
+    if not target_recipients:
+        raise WorkflowError("no recipients selected for campaign action", 400)
+
+    sender_domain = details["sender_domain"]
+    sample_subject = details["subject"]
+    sample_sender = details["sender"]
+    links = details["links"]
+
+    processed_users = []
+    actions_created_or_updated = 0
+
+    for r in target_recipients:
+        uid = r["user_id"]
+        cid = r["case_id"]
+        case = db.get(CaseRow, cid) if cid else None
+
+        # If user has no case, open one for the campaign incident
+        if case is None:
+            case = CaseRow(
+                user_id=uid,
+                as_of=utcnow(),
+                score=r.get("score") or 75,
+                email_score=r.get("score") or 75,
+                login_score=0,
+                band=r.get("band") or "high",
+                status="investigating",
+                campaign_key=campaign_key,
+                campaign_size=details["total_recipients"],
+                headline=f"Phishing campaign: {sample_subject}",
+                assignee=actor,
+            )
+            db.add(case)
+            db.flush()
+
+        # Build/update the 4 unified campaign actions on the user's case
+        action_specs = [
+            ("block_sender_domain", f"Block sender domain ({sender_domain})", f"Sender domain {sender_domain} blocked across campus mail and DNS.", True, "dns.block_domain"),
+            ("block_urls", "Block the link URLs", f"Blocked {len(links)} flagged campaign URLs at web filter.", True, "dns.block_url"),
+            ("remove_from_mailboxes", f"Remove message from mailbox ({r.get('email') or uid})", f"Purged phishing message '{sample_subject}' from mailbox.", False, "mail.purge"),
+            ("send_user_alert", "Send user verification alert", "Phishing notification alert dispatched to user.", True, "notify.user"),
+        ]
+
+        existing_actions = {a.code: a for a in db.scalars(select(ActionRow).where(ActionRow.case_id == case.id)).all()}
+
+        for order, (code, label, detail, reversible, connector) in enumerate(action_specs, start=1):
+            act = existing_actions.get(code)
+            if act is None:
+                act = ActionRow(
+                    case_id=case.id,
+                    order=order,
+                    code=code,
+                    label=label,
+                    detail=detail,
+                    reversible=reversible,
+                    requires_approval=True,
+                    connector=connector,
+                    status="approved",
+                    decided_by=actor,
+                    decided_at=utcnow(),
+                    note=f"Campaign action approved for {campaign_key}: {note}".strip(),
+                )
+                db.add(act)
+                actions_created_or_updated += 1
+            else:
+                act.status = "approved"
+                act.decided_by = actor
+                act.decided_at = utcnow()
+                act.note = f"Campaign action approved for {campaign_key}: {note}".strip()
+                actions_created_or_updated += 1
+
+        # Alert the recipient: create NotificationRow for user
+        db.add(NotificationRow(
+            user_id=uid,
+            case_id=case.id,
+            title="Security Alert: Phishing message removed",
+            body=(
+                f"A phishing message with subject '{sample_subject}' sent from '{sample_sender}' was delivered to your mailbox. "
+                "The message has been purged from your inbox and related sender addresses and links have been blocked. "
+                "If you did not click links or reply to the email, no further action is required."
+            ),
+            ts=utcnow(),
+        ))
+
+        # Record ONE audit entry per user
+        audit(
+            db,
+            actor=actor,
+            role=role,
+            event="campaign_action_approved",
+            case_id=case.id,
+            detail={
+                "campaign_key": campaign_key,
+                "user_id": uid,
+                "actions": ["block_sender_domain", "block_urls", "remove_from_mailboxes", "send_user_alert"],
+                "note": note,
+            },
+        )
+        case.status = "investigating"
+        case.assignee = case.assignee or actor
+        case.updated_at = utcnow()
+        processed_users.append(uid)
+
+    db.flush()
+    return {
+        "campaign_key": campaign_key,
+        "status": "approved",
+        "affected_users": processed_users,
+        "affected_count": len(processed_users),
+        "excluded_count": len(excluded),
+        "actions_updated": actions_created_or_updated,
+        "audit_entries_recorded": len(processed_users),
+    }
+
+
+def undo_campaign_action(db: Session, campaign_key: str, actor: str, role: str, note: str = "") -> dict:
+    """Undo the campaign action where actions are reversible.
+
+    Reversible actions (block_sender_domain, block_urls, send_user_alert) are undone.
+    Irreversible actions (remove_from_mailboxes) are retained with explanatory note.
+    Records exactly one audit entry per recipient user.
+    """
+    details = get_campaign_details(db, campaign_key)
+    recipients = details["recipients"]
+    reversed_users = []
+
+    for r in recipients:
+        uid = r["user_id"]
+        cid = r["case_id"]
+        case = db.get(CaseRow, cid) if cid else None
+        if not case:
+            continue
+
+        actions = db.scalars(select(ActionRow).where(ActionRow.case_id == case.id)).all()
+        reversed_codes = []
+        retained_codes = []
+
+        for a in actions:
+            if a.code in ("block_sender_domain", "block_urls", "send_user_alert"):
+                if a.reversible and a.status == "approved":
+                    a.status = "proposed"
+                    a.decided_by = None
+                    a.decided_at = None
+                    a.note = f"Reversed by campaign undo ({actor}): {note}".strip()
+                    reversed_codes.append(a.code)
+            elif a.code == "remove_from_mailboxes":
+                # Message purge is irreversible: retain as approved
+                retained_codes.append(a.code)
+
+        if reversed_codes or retained_codes:
+            # Record exactly ONE audit entry per user
+            audit(
+                db,
+                actor=actor,
+                role=role,
+                event="campaign_action_undone",
+                case_id=case.id,
+                detail={
+                    "campaign_key": campaign_key,
+                    "user_id": uid,
+                    "reversed_actions": reversed_codes,
+                    "retained_irreversible_actions": retained_codes,
+                    "note": note,
+                },
+            )
+            case.status = "investigating"
+            case.resolved_at = None
+            case.updated_at = utcnow()
+            reversed_users.append(uid)
+
+    db.flush()
+    return {
+        "campaign_key": campaign_key,
+        "status": "undone",
+        "affected_users": reversed_users,
+        "affected_count": len(reversed_users),
+        "reversed_actions": ["block_sender_domain", "block_urls", "send_user_alert"],
+        "retained_irreversible_actions": ["remove_from_mailboxes"],
+        "audit_entries_recorded": len(reversed_users),
+    }
+

@@ -20,12 +20,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from . import reports, scenarios as sc, services
-from .db import get_db, init_db
+from .db import SessionLocal, get_db, init_db
 from .engine import config as cfgmod
 from .engine import explain, respond
 from .engine.baseline import build_baseline
+from .engine.counter import get_cross_user_counter
 from .engine.email_parse import from_fields, parse_eml
 from .engine.pipeline import analyze_case, build_context
+from .engine.queue import get_analysis_queue, start_analysis_queue
 from .engine.text_model import MODEL_DIR, get_model
 from .engine.types import LoginEvent
 from .models import ActionRow, AuditRow, CaseRow, EmailRow, LoginRow, NotificationRow, UserRow
@@ -36,7 +38,13 @@ from .services import WorkflowError, aware
 async def lifespan(_: FastAPI):
     init_db()
     get_model()          # train/load once so the first request is not slow
-    yield
+    with SessionLocal() as db:
+        get_cross_user_counter().warmup_from_db(db)
+    q = start_analysis_queue()
+    try:
+        yield
+    finally:
+        q.stop(drain=True)
 
 
 app = FastAPI(title="TraceGuard", version="1.0.0", lifespan=lifespan,
@@ -99,8 +107,15 @@ def action_dict(a: ActionRow) -> dict:
 # ------------------------------------------------------------------ health
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
+    q = get_analysis_queue()
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat(), "cases": db.scalar(select(func.count(CaseRow.id))),
-            "text_model": get_model().meta.get("source", "unknown"), "llm_narrator": explain._llm is not None}
+            "text_model": get_model().meta.get("source", "unknown"), "llm_narrator": explain._llm is not None,
+            "queue": q.stats}
+
+
+@app.get("/api/queue")
+def queue_status(a: Actor = Depends(staff)):
+    return get_analysis_queue().stats
 
 
 # ------------------------------------------------------------------ dashboard & reports
@@ -117,6 +132,71 @@ def get_reports(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_d
 @app.get("/api/campaigns")
 def get_campaigns(db: Session = Depends(get_db), a: Actor = Depends(staff)):
     return reports.campaigns(db)
+
+
+@app.get("/api/campaigns/{campaign_key}")
+def get_campaign(campaign_key: str, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+    return services.get_campaign_details(db, campaign_key)
+
+
+class CampaignActionBody(BaseModel):
+    excluded_user_ids: list[str] = []
+    user_ids: Optional[list[str]] = None
+    note: str = ""
+
+
+@app.post("/api/campaigns/{campaign_key}/action")
+def approve_campaign_action_endpoint(
+    campaign_key: str, body: CampaignActionBody, db: Session = Depends(get_db), a: Actor = Depends(staff)
+):
+    res = services.approve_campaign_action(
+        db, campaign_key, actor=a.name, role=a.role,
+        excluded_user_ids=body.excluded_user_ids, user_ids=body.user_ids, note=body.note
+    )
+    db.commit()
+    return res
+
+
+class CampaignUndoBody(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/campaigns/{campaign_key}/undo")
+def undo_campaign_action_endpoint(
+    campaign_key: str, body: CampaignUndoBody = CampaignUndoBody(), db: Session = Depends(get_db), a: Actor = Depends(staff)
+):
+    res = services.undo_campaign_action(db, campaign_key, actor=a.name, role=a.role, note=body.note)
+    db.commit()
+    return res
+
+
+# ------------------------------------------------------------------ analyst notifications
+@app.get("/api/notifications/daily-summary")
+def preview_daily_summary(date: Optional[str] = None, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+    from .engine import notifications
+    d = datetime.fromisoformat(date) if date else None
+    summary_text, meta = notifications.generate_daily_summary(db, d)
+    return {"summary": summary_text, "meta": meta}
+
+
+class DailySummarySendBody(BaseModel):
+    date: Optional[str] = None
+    channel: str = "both"
+
+
+@app.post("/api/notifications/daily-summary")
+def trigger_daily_summary(body: DailySummarySendBody = DailySummarySendBody(), db: Session = Depends(get_db), a: Actor = Depends(staff)):
+    from .engine import notifications
+    d = datetime.fromisoformat(body.date) if body.date else None
+    msgs = notifications.send_daily_summary(db, d, channel=body.channel)
+    return {"sent": len(msgs), "messages": [m.to_dict() for m in msgs]}
+
+
+@app.get("/api/notifications/sent")
+def get_sent_notifications(a: Actor = Depends(staff)):
+    from .engine import notifications
+    msgs = notifications.get_notification_sender().sent_messages
+    return {"total": len(msgs), "messages": [m.to_dict() for m in msgs]}
 
 
 @app.get("/api/audit")
@@ -306,6 +386,19 @@ def decide(case_id: int, action_id: int, body: Decision, db: Session = Depends(g
     return action_dict(act)
 
 
+class ActionUndoBody(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/cases/{case_id}/actions/{action_id}/undo")
+def undo_action_endpoint(
+    case_id: int, action_id: int, body: ActionUndoBody = ActionUndoBody(), db: Session = Depends(get_db), a: Actor = Depends(staff)
+):
+    act = services.undo_action(db, case_id, action_id, actor=a.name, role=a.role, note=body.note)
+    db.commit()
+    return action_dict(act)
+
+
 class StatusBody(BaseModel):
     status: str
 
@@ -393,27 +486,20 @@ class LoginIn(BaseModel):
 
 
 @app.post("/api/ingest/logins")
-def ingest_logins(batch: list[LoginIn], db: Session = Depends(get_db), a: Actor = Depends(admin)):
-    cfg = cfgmod.get()
+def ingest_logins(batch: list[LoginIn], sync: bool = Query(False), db: Session = Depends(get_db), a: Actor = Depends(admin)):
     if len(batch) > 5000:
         raise HTTPException(413, "batch limit is 5000 events")
-    touched, stored = set(), 0
-    for item in sorted(batch, key=lambda x: x.ts):
-        ev = LoginEvent(user_id=item.user_id, ts=item.ts, ip=item.ip, country=item.country, city=item.city, device=item.device.lower(),
-                        success=item.success, is_attack_ip=item.is_attack_ip)
-        services.upsert_user(db, ev.user_id)
-        risk, band, flags = services.score_new_login(db, ev, cfg)
-        services.add_login(db, ev, risk, band, flags)
-        db.flush()
-        touched.add(ev.user_id)
-        stored += 1
-    opened = []
-    for uid in touched:
-        c = services.reanalyze_user(db, uid, actor="ingest")
-        if c and c.band != "low":
-            opened.append({"case_id": c.id, "user_id": uid, "band": c.band, "score": c.score})
-    db.commit()
-    return {"stored": stored, "cases": opened}
+    events = [LoginEvent(user_id=item.user_id, ts=item.ts, ip=item.ip, country=item.country, city=item.city,
+                         device=item.device.lower(), success=item.success, is_attack_ip=item.is_attack_ip)
+              for item in batch]
+    q = get_analysis_queue()
+    if not q.is_running():
+        q.start()
+    job = q.enqueue(events)
+    if sync or os.environ.get("TRACEGUARD_SYNC_INGEST", "").lower() in ("1", "true"):
+        job.done.wait(timeout=30.0)
+        return {"stored": len(events), "cases": job.result_cases}
+    return {"stored": len(events), "queued": True, "cases": []}
 
 
 class EmailIn(BaseModel):

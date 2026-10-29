@@ -26,7 +26,7 @@ export { ThemeToggle } from './theme.jsx'
 export function Band({ band, score }) {
   const b = getBandInfo(band ?? score)
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${b.cls}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold ${b.cls}`}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: b.dot }} />
       {b.label}{score !== undefined && score !== null ? ` ${score}` : ''}
     </span>
@@ -49,12 +49,15 @@ export const Chip = ({ children, tone = 'slate', className = '' }) => (
   </span>
 )
 
-export const Card = ({ title, right, children, className = '', headerClassName = '', bodyClassName = 'p-4 sm:p-5', id }) => (
+export const Card = ({ title, subtitle, right, children, className = '', headerClassName = '', bodyClassName = 'p-4 sm:p-5', id }) => (
   <section id={id} className={`card ${className}`}>
     {(title || right) && (
-      <header className={`flex flex-wrap items-center justify-between gap-2 border-b border-ink-600/70 px-4 py-3 sm:px-5 ${headerClassName}`}>
+      <header className={`flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-b border-ink-600/50 px-4 py-3.5 sm:px-5 ${headerClassName}`}>
         {typeof title === 'string' ? (
-          <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+            {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
+          </div>
         ) : (
           title
         )}

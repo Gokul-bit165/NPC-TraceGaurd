@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -49,6 +49,9 @@ export default function Logins() {
   })
   const [page, setPage] = useState(0)
   const [selectedLogin, setSelectedLogin] = useState(null)
+  // Keeps the last selection mounted while the pane slides closed, so content does not vanish mid-animation.
+  const [panelRow, setPanelRow] = useState(null)
+  useEffect(() => { if (selectedLogin) setPanelRow(selectedLogin) }, [selectedLogin])
   const [clientSort, setClientSort] = useState({ key: 'ts', dir: 'desc' })
   const [isExporting, setIsExporting] = useState(false)
 
@@ -163,7 +166,8 @@ export default function Logins() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex items-start">
+    <div className="min-w-0 flex-1 space-y-6">
       <PageHeader
         title="Suspicious Login Monitoring"
         description="Every sign-in is evaluated dynamically against the user's historical behavioral baseline: typical countries, cities, devices, active hours, and rapid failure sequences."
@@ -184,8 +188,8 @@ export default function Logins() {
       {/* Filter Toolbar */}
       <Card>
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
-            <div className="sm:col-span-2 lg:col-span-2 relative">
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+            <div className="col-span-2 relative">
               <input
                 type="text"
                 className="input !pr-7"
@@ -294,9 +298,9 @@ export default function Logins() {
       </Card>
 
       {/* Main Grid: Login List + Side Detail Panel */}
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="grid gap-6">
         {/* Table Column */}
-        <div className="space-y-4 xl:col-span-2">
+        <div className="space-y-4">
           <Card
             title={
               <div className="flex items-center gap-2">
@@ -317,7 +321,7 @@ export default function Logins() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left">
+                  <table className={`w-full text-left ${selectedLogin ? '[&_.td]:px-2 [&_.th]:px-2' : ''}`}>
                     <thead className="border-b border-ink-600/60 bg-ink-900/50">
                       <tr>
                         <th
@@ -346,7 +350,7 @@ export default function Logins() {
                             )}
                           </div>
                         </th>
-                        <th className="th">Device / Client</th>
+                        <th className={`th ${selectedLogin ? 'xl:hidden' : ''}`}>Device / Client</th>
                         <th
                           onClick={() => toggleSort('success')}
                           className="th cursor-pointer hover:text-slate-100"
@@ -402,7 +406,7 @@ export default function Logins() {
                               isSelected ? 'bg-ink-700/80 border-l-2 border-l-sky-500' : ''
                             }`}
                           >
-                            <td className="td">
+                            <td className="td whitespace-nowrap">
                               <div className="font-semibold text-slate-200">
                                 {r.user.name}
                               </div>
@@ -423,7 +427,7 @@ export default function Logins() {
                                 )}
                               </div>
                             </td>
-                            <td className="td text-slate-400 text-xs">
+                            <td className={`td text-slate-400 text-xs ${selectedLogin ? 'xl:hidden' : ''}`}>
                               {r.device || 'Unknown Client'}
                             </td>
                             <td className="td">
@@ -443,7 +447,7 @@ export default function Logins() {
                                 )}
                               </div>
                             </td>
-                            <td className="td text-right text-xs text-slate-400 font-mono">
+                            <td className="td whitespace-nowrap text-right text-xs text-slate-400 font-mono">
                               {when(r.ts)}
                             </td>
                           </tr>
@@ -466,232 +470,224 @@ export default function Logins() {
           </Card>
         </div>
 
-        {/* User Detail Side Panel */}
-        <div>
-          <LoginDetailPanel
-            row={selectedLogin}
-            onClose={() => setSelectedLogin(null)}
-          />
-        </div>
       </div>
+    </div>
+
+    {/* Detail pane: a real column beside the page (no backdrop), so the table stays visible and clickable */}
+    <LoginDetailPanel row={panelRow} open={!!selectedLogin} onClose={() => setSelectedLogin(null)} />
     </div>
   )
 }
+const Row = ({ label, children }) => (
+  <div className="grid grid-cols-[84px_minmax(0,1fr)] items-baseline gap-3 py-1.5">
+    <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</dt>
+    <dd className="min-w-0 break-words font-mono text-xs text-slate-200">{children}</dd>
+  </div>
+)
 
-function LoginDetailPanel({ row, onClose }) {
-  const { data, loading } = useApi(
-    () => (row ? api.get(`/users/${row.user.id}/logins`) : Promise.resolve({ data: null })),
-    [row?.user.id]
+const SectionLabel = ({ children, right }) => (
+  <div className="mb-2 flex items-center justify-between gap-2">
+    <h4 className="eyebrow">{children}</h4>
+    {right}
+  </div>
+)
+
+// Non-modal detail pane. At xl+ it is a flex column that animates its width and pushes the page left;
+// below xl it slides in from the right over the page (still no backdrop or blur).
+function LoginDetailPanel({ row, open, onClose }) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') onCloseRef.current() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
+
+  if (!row) return null
+  return (
+    <aside className="detail-pane no-print" data-open={open} aria-label={`Login details for ${row.user.name}`} aria-hidden={!open}>
+      <div className="detail-inner">
+        <LoginDetailContent row={row} onClose={onClose} />
+      </div>
+    </aside>
   )
+}
 
-  if (!row) {
-    return (
-      <Card title="Login Details">
-        <div className="py-16 text-center text-slate-500 space-y-2">
-          <KeyRound className="mx-auto text-slate-600" size={32} />
-          <h4 className="text-sm font-semibold text-slate-300">
-            No Login Selected
-          </h4>
-          <p className="text-xs text-slate-500 max-w-xs mx-auto">
-            Click on any login record in the table to inspect risk evidence, unusual flags, and comparison against normal user baseline.
-          </p>
-        </div>
-      </Card>
-    )
-  }
-
+function LoginDetailContent({ row, onClose }) {
+  const { data, loading } = useApi(
+    () => api.get(`/users/${row.user.id}/logins`),
+    [row.user.id]
+  )
   const baseline = data?.baseline
   const isThin = baseline?.thin
-  const hasImpossibleTravel =
-    row.flags && row.flags.some((f) => f.includes('IMPOSSIBLE_TRAVEL'))
+  const hasImpossibleTravel = row.flags && row.flags.some((f) => f.includes('IMPOSSIBLE_TRAVEL'))
 
   return (
-    <Card
-      title={
-        <div className="flex items-center gap-2">
-          <User size={16} className="text-sky-400" />
-          <span className="font-semibold text-slate-200">{row.user.name}</span>
-        </div>
-      }
-      right={
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-slate-100 transition"
-          aria-label="Close details"
-        >
-          <X size={16} />
-        </button>
-      }
-    >
-      <div className="space-y-4 text-xs">
-        {/* User headline */}
-        <div className="flex items-center justify-between border-b border-ink-600/40 pb-3">
-          <div>
-            <div className="font-mono text-slate-300">{row.user.email || row.user.id}</div>
-            <div className="text-[11px] text-slate-500 capitalize">Role: {row.user.role || 'Staff / Student'}</div>
-          </div>
-          <RiskBadge band={row.band} score={row.risk} size="md" />
-        </div>
-
-        {/* Selected Login Details Box */}
-        <div className="rounded-xl border border-ink-600/70 bg-ink-900 p-3.5 space-y-2">
-          <div className="font-semibold uppercase tracking-wider text-[10px] text-slate-400">
-            Selected Sign-In Event
-          </div>
-          <div className="text-sm font-medium text-slate-100 flex items-center justify-between">
-            <span>{formatLocation(row)}</span>
-            <Chip tone={row.success ? 'emerald' : 'rose'}>
-              {row.success ? 'Success' : 'Failed'}
-            </Chip>
-          </div>
-          <div className="text-slate-400 font-mono text-[11px] space-y-0.5">
-            <div>IP Address: <span className="text-slate-200">{row.ip}</span></div>
-            <div>Device: <span className="text-slate-200">{row.device || 'Unknown'}</span></div>
-            <div>Time (UTC): <span className="text-slate-200">{when(row.ts)}</span></div>
-          </div>
-
-          {/* Impossible travel callout */}
-          {hasImpossibleTravel && (
-            <div className="mt-2 rounded-lg border border-rose-500/50 bg-rose-950/40 p-2 text-rose-300 text-xs space-y-0.5">
-              <div className="flex items-center gap-1 font-bold">
-                <AlertTriangle size={13} />
-                <span>Impossible Travel Condition Detected</span>
-              </div>
-              <p className="text-[11px] text-rose-200">
-                Physical transit speed between successive sign-in locations exceeds reasonable commercial flight limits.
-              </p>
+    <div className="flex h-full flex-col overflow-hidden border-ink-600/70 bg-ink-800 max-xl:border-l max-xl:shadow-pop xl:rounded-xl xl:border xl:shadow-card">
+        {/* Header */}
+        <header className="flex items-start justify-between gap-3 border-b border-ink-600/50 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <User size={16} className="shrink-0 text-sky-400" />
+              <h3 className="truncate text-base font-semibold text-slate-100">{row.user.name}</h3>
             </div>
-          )}
-
-          {/* Risk evidence flags */}
-          <div className="pt-1">
-            <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
-              Triggered Risk Flags
-            </div>
-            {row.flags && row.flags.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {row.flags.map((flag) => (
-                  <Chip key={flag} tone="amber">
-                    {flag.replace(/^L_/, '').toLowerCase().replaceAll('_', ' ')}
-                  </Chip>
-                ))}
-              </div>
-            ) : (
-              <span className="text-slate-500 text-[11px]">
-                No anomaly flags triggered for this event.
-              </span>
-            )}
+            <p className="mt-1 truncate font-mono text-xs text-slate-400" title={row.user.email || row.user.id}>
+              {row.user.email || row.user.id}
+            </p>
+            <p className="mt-0.5 text-[11px] capitalize text-slate-500">Role: {row.user.role || 'Staff / Student'}</p>
           </div>
-        </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <RiskBadge band={row.band} score={row.risk} aligned />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-ink-600 text-slate-400 transition-colors hover:bg-ink-700 hover:text-slate-100"
+              aria-label="Close details"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </header>
 
-        {/* Baseline Comparison */}
-        {loading || !data ? (
-          <Spinner message="Fetching user history & baseline…" />
-        ) : (
-          <>
-            {/* Low-confidence warning if baseline is thin */}
-            {isThin && (
-              <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-2.5 text-amber-200">
-                <div className="flex items-center gap-1 font-semibold text-amber-300">
-                  <Info size={13} />
-                  <span>Low Confidence: Thin History</span>
+        {/* Scrollable body */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+          {/* Selected event */}
+          <section>
+            <SectionLabel right={<Chip tone={row.success ? 'emerald' : 'rose'}>{row.success ? 'Success' : 'Failed'}</Chip>}>
+              Selected sign-in event
+            </SectionLabel>
+            <div className="panel px-4 py-2">
+              <dl className="divide-y divide-ink-600/40">
+                <Row label="Location">{formatLocation(row)}</Row>
+                <Row label="IP address">
+                  {row.ip}
+                  {row.attack_ip && <span className="ml-2 text-[10px] font-bold text-rose-400">[ATTACK IP]</span>}
+                </Row>
+                <Row label="Device">{row.device || 'Unknown'}</Row>
+                <Row label="Time (UTC)">{when(row.ts)}</Row>
+              </dl>
+            </div>
+
+            {hasImpossibleTravel && (
+              <div className="mt-3 rounded-lg border border-rose-500/50 bg-rose-500/10 p-3 text-rose-300">
+                <div className="flex items-center gap-1.5 text-xs font-semibold">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  Impossible travel condition detected
                 </div>
-                <p className="mt-0.5 text-[11px] text-amber-200/90 leading-relaxed">
-                  This user has only {baseline.n_success} recorded sign-ins. Normal patterns (locations, devices, and hours) are not yet firmly established.
+                <p className="mt-1 text-xs leading-relaxed text-rose-200/90">
+                  Physical transit speed between successive sign-in locations exceeds reasonable commercial flight limits.
                 </p>
               </div>
             )}
+          </section>
 
-            {/* Usual Pattern */}
-            <div className="rounded-lg border border-ink-600/40 bg-ink-900/50 p-3 space-y-2">
-              <div className="font-semibold text-slate-300">
-                Usual Pattern for this User ({baseline?.n_success || 0} Successful Logins)
+          {/* Risk flags */}
+          <section>
+            <SectionLabel>Triggered risk flags</SectionLabel>
+            {row.flags && row.flags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {row.flags.map((flag) => (
+                  <Chip key={flag} tone="amber">{flag.replace(/^L_/, '').toLowerCase().replaceAll('_', ' ')}</Chip>
+                ))}
               </div>
-              <div>
-                <div className="text-[10px] uppercase text-slate-500 mb-1">Usual Countries</div>
-                <div className="flex flex-wrap gap-1">
-                  {baseline?.countries?.length > 0 ? (
-                    baseline.countries.map((c) => (
-                      <Chip key={c} tone="sky">{c}</Chip>
-                    ))
-                  ) : (
-                    <span className="text-slate-500">None established</span>
-                  )}
-                </div>
-              </div>
+            ) : (
+              <p className="text-xs text-slate-500">No anomaly flags triggered for this event.</p>
+            )}
+          </section>
 
-              <div>
-                <div className="text-[10px] uppercase text-slate-500 mb-1">Usual Devices</div>
-                <div className="flex flex-wrap gap-1">
-                  {baseline?.devices?.length > 0 ? (
-                    baseline.devices.map((d) => (
-                      <Chip key={d} tone="violet">{d}</Chip>
-                    ))
-                  ) : (
-                    <span className="text-slate-500">None established</span>
-                  )}
-                </div>
-              </div>
-
-              {baseline?.usual_hours?.length > 0 && (
-                <div>
-                  <div className="text-[10px] uppercase text-slate-500 mb-0.5">Typical Hours (UTC)</div>
-                  <div className="font-mono text-slate-300 text-[11px]">
-                    {baseline.usual_hours.map((h) => `${h}:00`).join(', ')}
+          {loading || !data ? (
+            <Spinner message="Fetching user history & baseline…" />
+          ) : (
+            <>
+              {isThin && (
+                <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-amber-200">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+                    <Info size={14} className="shrink-0" />
+                    Low confidence: thin history
                   </div>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-200/90">
+                    This user has only {baseline.n_success} recorded sign-ins. Normal patterns (locations, devices, and hours) are not yet firmly established.
+                  </p>
                 </div>
               )}
-            </div>
 
-            {/* Case Navigation Button if linked to a case */}
-            {data.case_id && (
-              <Link
-                to={`/investigate/${data.case_id}`}
-                className="btn btn-primary w-full justify-center !py-2 text-xs"
-              >
-                <ShieldAlert size={14} />
-                <span>Open Linked Case #{data.case_id}</span>
-              </Link>
-            )}
+              {/* Usual pattern */}
+              <section>
+                <SectionLabel right={<span className="text-[11px] text-slate-500">{baseline?.n_success || 0} successful logins</span>}>
+                  Usual pattern for this user
+                </SectionLabel>
+                <div className="panel divide-y divide-ink-600/40 px-4">
+                  <div className="py-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Countries</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {baseline?.countries?.length > 0
+                        ? baseline.countries.map((c) => <Chip key={c} tone="sky">{c}</Chip>)
+                        : <span className="text-xs text-slate-500">None established</span>}
+                    </div>
+                  </div>
+                  <div className="py-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Devices</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {baseline?.devices?.length > 0
+                        ? baseline.devices.map((d) => <Chip key={d} tone="violet">{d}</Chip>)
+                        : <span className="text-xs text-slate-500">None established</span>}
+                    </div>
+                  </div>
+                  {baseline?.usual_hours?.length > 0 && (
+                    <div className="py-3">
+                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Typical hours (UTC)</div>
+                      <div className="font-mono text-xs leading-relaxed text-slate-300">
+                        {baseline.usual_hours.map((h) => `${h}:00`).join(', ')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
 
-            {/* History Table */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-semibold text-slate-300">
-                  Recent Sign-In History ({data.items?.length || 0})
-                </span>
-                <span className="text-[10px] text-slate-500">Most recent first</span>
-              </div>
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-ink-600/60 bg-ink-900/40">
-                <table className="w-full text-left">
-                  <tbody className="divide-y divide-ink-600/40 text-[11px]">
-                    {data.items?.map((item) => (
-                      <tr key={item.id} className="hover:bg-ink-700/30">
-                        <td className="px-2.5 py-1.5 font-mono text-slate-400">
-                          {when(item.ts)}
-                        </td>
-                        <td className="px-2.5 py-1.5 text-slate-200">
-                          {formatLocation(item)}
-                        </td>
-                        <td className="px-2 py-1.5 text-center">
-                          {item.success ? (
-                            <span className="text-emerald-400">ok</span>
-                          ) : (
-                            <span className="text-rose-400 font-bold">failed</span>
-                          )}
-                        </td>
-                        <td className="px-2.5 py-1.5 text-right">
-                          <Band band={item.band} score={item.risk} />
-                        </td>
+              {data.case_id && (
+                <Link to={`/investigate/${data.case_id}`} className="btn btn-primary w-full !py-2.5 text-sm">
+                  <ShieldAlert size={15} />
+                  Open linked case #{data.case_id}
+                </Link>
+              )}
+
+              {/* Recent history: fixed layout, so it fits the drawer with no sideways scroll */}
+              <section>
+                <SectionLabel right={<span className="text-[11px] text-slate-500">Most recent first</span>}>
+                  Recent sign-in history ({data.items?.length || 0})
+                </SectionLabel>
+                <div className="panel max-h-72 overflow-y-auto">
+                  <table className="w-full table-fixed text-left text-xs">
+                    <thead className="sticky top-0 border-b border-ink-600/50 bg-ink-900">
+                      <tr>
+                        <th className="w-[112px] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Time</th>
+                        <th className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Location</th>
+                        <th className="w-[56px] px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-500">Result</th>
+                        <th className="w-[120px] px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Risk</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </Card>
+                    </thead>
+                    <tbody className="divide-y divide-ink-600/40">
+                      {data.items?.map((item) => (
+                        <tr key={item.id} className="hover:bg-ink-700/30">
+                          <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px] text-slate-400">{when(item.ts)}</td>
+                          <td className="truncate px-3 py-2 text-slate-200" title={formatLocation(item)}>{formatLocation(item)}</td>
+                          <td className="px-2 py-2 text-center">
+                            {item.success
+                              ? <span className="text-emerald-400">ok</span>
+                              : <span className="font-semibold text-rose-400">failed</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right"><RiskBadge band={item.band} score={item.risk} aligned className="!w-[104px]" /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+    </div>
   )
 }

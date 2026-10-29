@@ -15,6 +15,7 @@ from .engine.email_signals import analyze_email
 from .engine.pipeline import analyze_case
 from .engine.types import CaseResult, EmailEvent, GlobalContext, Link, LoginEvent
 from .models import (ActionRow, AuditRow, CaseRow, EmailRow, FeedbackRow, LoginRow, NotificationRow, UserRow, utcnow)
+from .connectors.registry import get_registry
 
 ACTIVE = ("open", "investigating")
 HISTORY_DAYS = 120
@@ -245,13 +246,69 @@ def decide_action(db: Session, case_id: int, action_id: int, decision: str, acto
         dep = db.scalar(select(ActionRow).where(ActionRow.case_id == case_id, ActionRow.code == a.depends_on))
         if dep is not None and dep.status not in {"approved", "auto_done"}:
             raise WorkflowError(f"'{a.label}' must wait until '{dep.label}' is approved: a live token survives a password reset", 409)
+
     a.status = "approved" if decision == "approve" else "rejected"
     a.decided_by, a.decided_at, a.note = actor, utcnow(), note
     case = db.get(CaseRow, case_id)
     if case.status == "open":
         case.status = "investigating"
         case.assignee = case.assignee or actor
-    audit(db, actor, role, f"action_{a.status}", case_id, {"action": a.code, "connector": a.connector, "note": note})
+
+    # ---- call the real connector if the decision is approve ----
+    connector_result = None
+    if decision == "approve":
+        # Build context from the case and any available email data.
+        top_email = db.get(EmailRow, case.top_email_id) if case.top_email_id else None
+        links = []
+        sender_domain = ""
+        if top_email:
+            try:
+                link_data = json.loads(top_email.links_json or "[]")
+                links = [lnk.get("href", "") for lnk in link_data if lnk.get("href")]
+                sender = top_email.sender or ""
+                # Extract registrable domain from sender address.
+                if "@" in sender:
+                    domain_part = sender.split("@", 1)[1].strip().rstrip(">")
+                    # Use the last two labels as the registrable domain.
+                    parts = domain_part.split(".")
+                    sender_domain = ".".join(parts[-2:]) if len(parts) >= 2 else domain_part
+            except Exception:
+                pass
+
+        ctx = {
+            "case_id": case_id,
+            "user_id": case.user_id,
+            "action_id": action_id,
+            "connector": a.connector,
+            "email_id": top_email.id if top_email else None,
+            "top_email_id": case.top_email_id,
+            "subject": top_email.subject if top_email else None,
+            "sender_domain": sender_domain,
+            "links": links,
+            "campaign_key": case.campaign_key,
+        }
+
+        connector_result = get_registry().dispatch(a.code, a.connector, ctx)
+
+        # If the connector call failed the action is marked 'failed' so that
+        # dependent steps remain blocked (they check for 'approved'/'auto_done').
+        if not connector_result.success:
+            a.status = "failed"
+            a.note = (
+                f"{note}\n[CONNECTOR FAILED] {connector_result.detail}".strip()
+            )
+        else:
+            if connector_result.detail:
+                a.note = f"{note}\n[CONNECTOR] {connector_result.detail}".strip()
+
+    audit_detail: dict = {"action": a.code, "connector": a.connector, "note": note}
+    if connector_result is not None:
+        audit_detail["connector_success"] = connector_result.success
+        audit_detail["connector_detail"] = connector_result.detail
+        if connector_result.data:
+            audit_detail["connector_data"] = connector_result.data
+
+    audit(db, actor, role, f"action_{a.status}", case_id, audit_detail)
     db.flush()
     pending = db.scalar(select(func.count(ActionRow.id)).where(ActionRow.case_id == case_id, ActionRow.status == "proposed")) or 0
     if pending == 0 and case.status in ACTIVE:

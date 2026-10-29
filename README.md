@@ -76,6 +76,30 @@ git merge origin/main             # pull in latest merged changes
 - One PR per feature / fix; request review before merging.
 - Run `make test` before opening a PR.
 
+## Response Connectors
+
+TraceGuard provides pluggable response connectors that execute approved actions. The active connector is set via `TRACEGUARD_CONNECTOR`:
+
+| Connector | Mode | Description |
+|-----------|------|-------------|
+| `log` (default) | Safe / Demo | Records the action in audit logs without calling external systems. |
+| `m365` | Real | Executes actions against Microsoft 365 / Entra ID via Microsoft Graph API. |
+
+### Microsoft 365 Setup
+Set the following environment variables:
+```bash
+TRACEGUARD_CONNECTOR=m365
+M365_TENANT_ID=<your-tenant-id>
+M365_CLIENT_ID=<your-client-id>
+M365_CLIENT_SECRET=<your-client-secret>
+# Optional: M365_MAILBOX_USER=<test-user-upn>
+```
+Supported actions:
+- **Mail**: Quarantine message (moves to Deleted Items/Junk), purge across mailboxes, block sender domain and link URLs.
+- **Identity**: Revoke active sessions / refresh tokens, reset user password, require MFA step-up.
+
+Every action is retry-safe (idempotent), records full results in the audit log, and requires analyst/admin approval before execution.
+
 ## Limits
-Scenarios are team-written; demo data is synthetic; RBA values are artificial and 15 of 16 takeovers had no baseline; actions use a log-only connector (no real mail/IdP calls); demo roles are header-based, not security.
+Scenarios are team-written; demo data is synthetic; RBA values are artificial and 15 of 16 takeovers had no baseline.
 Data credit: RBA data set, Wiefling et al., CC BY 4.0.

@@ -1,0 +1,13 @@
+{
+  "rows": 100,
+  "users": 7,
+  "date_range": [
+    "2020-02-03 09:48:35.586000",
+    "2020-02-16 16:39:41.692000"
+  ],
+  "account_takeovers": 2,
+  "takeovers_with_<5_prior_logins": 1,
+  "note": "Takeovers on accounts with little history are invisible to behaviour-only scoring.",
+  "threat_list_match_rate_attack_ips": 0.0,
+  "threat_list_match_rate_other_ips": 0.0
+}

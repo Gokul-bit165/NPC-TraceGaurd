@@ -1,0 +1,18 @@
+{
+  "kind": "public model, top 12 of 24 layers fine-tuned briefly on our training split",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.0402,
+      "val_loss": 0.0162,
+      "val_auc": 0.9933,
+      "val_recall_at_1pct_fpr": 0.993,
+      "peak_vram_gb": 3.81,
+      "seconds": 511.1
+    }
+  ],
+  "train_seconds": 514.6,
+  "trained_rows": 6001,
+  "peak_vram_gb": 3.81,
+  "params_m": 335.1
+}

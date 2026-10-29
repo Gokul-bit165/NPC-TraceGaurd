@@ -54,7 +54,8 @@ def main() -> None:
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(csv_bytes)
-    print(f"wrote {out} ({len(csv_bytes) / 1e6:.1f} MB, {csv_bytes.count(b'\n') - 1:,} rows)")
+    n_rows = csv_bytes.count(b"\n") - 1
+    print(f"wrote {out} ({len(csv_bytes) / 1e6:.1f} MB, {n_rows:,} rows)")
 
 
 if __name__ == "__main__":

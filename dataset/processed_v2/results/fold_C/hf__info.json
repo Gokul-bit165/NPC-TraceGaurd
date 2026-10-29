@@ -1,0 +1,22 @@
+{
+  "kind": "ealvaradob/bert-finetuned-phishing, used as downloaded (no training)",
+  "phishing_label_index": 1,
+  "params_m": 335.1,
+  "input_variant_on_validation": {
+    "normalised": {
+      "auc": 0.9937616761375825,
+      "r1": 0.972027972027972
+    },
+    "restored_placeholders": {
+      "auc": 0.9939040323870219,
+      "r1": 0.986013986013986
+    }
+  },
+  "input_variant_chosen": "restored_placeholders",
+  "gpu_ms_per_msg_val": 14.958,
+  "gpu_ms_per_msg_test_in_dist": 14.793,
+  "gpu_ms_per_msg_test_cross": 15.472,
+  "gpu_ms_per_msg_test_campus": 3.384,
+  "gpu_ms_per_msg_spam_eval": 12.258,
+  "peak_vram_gb": 0.94
+}

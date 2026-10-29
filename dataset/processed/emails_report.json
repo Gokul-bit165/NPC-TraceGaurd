@@ -1,0 +1,56 @@
+{
+  "files": [
+    "LOADED  CEAS_08.csv: 39154 rows, columns=['sender', 'receiver', 'date', 'subject', 'body', 'label', 'urls']",
+    "LOADED  Enron.csv: 29767 rows, columns=['subject', 'body', 'label']",
+    "LOADED  Ling.csv: 2859 rows, columns=['subject', 'body', 'label']",
+    "LOADED  Nazario.csv: 1565 rows, columns=['sender', 'receiver', 'date', 'subject', 'body', 'urls', 'label']",
+    "LOADED  Nigerian_Fraud.csv: 3332 rows, columns=['sender', 'receiver', 'date', 'subject', 'body', 'urls', 'label']",
+    "SKIPPED phishing_email.csv: aggregate of the other files (use --include-combined to keep)",
+    "LOADED  SpamAssasin.csv: 5809 rows, columns=['sender', 'receiver', 'date', 'subject', 'body', 'label', 'urls']"
+  ],
+  "stats": {
+    "loaded_rows": 82486,
+    "after_valid_label": 82486,
+    "after_min_length": 82476,
+    "dropped_conflicting_labels": 0,
+    "after_dedup": 74266,
+    "train_rows": 54870,
+    "train_phishing_share": 0.506,
+    "val_rows": 6859,
+    "val_phishing_share": 0.506,
+    "test_in_distribution_rows": 6859,
+    "test_in_distribution_phishing_share": 0.506,
+    "test_cross_source_rows": 5678,
+    "test_cross_source_phishing_share": 0.282,
+    "rows_by_source_and_label": {
+      "CEAS_08": {
+        "0": 17096,
+        "1": 15583
+      },
+      "Enron": {
+        "0": 14384,
+        "1": 13917
+      },
+      "Ling": {
+        "0": 2397,
+        "1": 457
+      },
+      "Nazario": {
+        "1": 1525
+      },
+      "Nigerian_Fraud": {
+        "1": 3229
+      },
+      "SpamAssasin": {
+        "0": 4075,
+        "1": 1603
+      }
+    },
+    "holdout_source": "SpamAssasin",
+    "notes": [
+      "label 1 = phishing/spam as labelled by the dataset authors; some sources are spam or fraud, not only phishing.",
+      "Text model results must be reported as TEXT-MODEL results on public data, not whole-system accuracy.",
+      "Production must apply the same cleaning (visible_text + normalise) before scoring."
+    ]
+  }
+}

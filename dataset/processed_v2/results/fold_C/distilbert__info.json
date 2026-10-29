@@ -1,0 +1,46 @@
+{
+  "kind": "distilbert-base-uncased fine-tuned (own)",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.0943,
+      "val_loss": 0.0115,
+      "val_auc": 0.9955,
+      "val_recall_at_1pct_fpr": 0.979,
+      "peak_vram_gb": 2.08,
+      "seconds": 140.6
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.0072,
+      "val_loss": 0.0103,
+      "val_auc": 0.9964,
+      "val_recall_at_1pct_fpr": 0.986,
+      "peak_vram_gb": 2.08,
+      "seconds": 136.3
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.0013,
+      "val_loss": 0.0109,
+      "val_auc": 0.996,
+      "val_recall_at_1pct_fpr": 0.986,
+      "peak_vram_gb": 2.08,
+      "seconds": 134.1
+    }
+  ],
+  "train_seconds": 414.1,
+  "class_weights": [
+    1.0,
+    2.104107747490941
+  ],
+  "peak_vram_gb": 2.08,
+  "params_m": 67.0,
+  "size_mb": 267.8,
+  "gpu_ms_per_msg_val": 2.024,
+  "gpu_ms_per_msg_test_in_dist": 1.985,
+  "gpu_ms_per_msg_test_cross": 2.168,
+  "gpu_ms_per_msg_test_campus": 0.936,
+  "gpu_ms_per_msg_spam_eval": 1.788,
+  "cpu_ms_per_msg_single": 75.5
+}

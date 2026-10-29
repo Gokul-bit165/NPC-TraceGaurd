@@ -1,6 +1,43 @@
-node_modules
-dist
+# Dependencies & build outputs
+node_modules/
+dist/
+build/
+
+# Python artifacts & environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Database files
 *.db*
-__pycache__
-.pytest_cache
+*.sqlite*
+
+# Large ML models, weights, and caches (>50MB / GBs)
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+.cache/
+
+# Large datasets & raw/processed data files
 backend/data/
+dataset/*.csv
+!dataset/rba_synthetic_100.csv
+dataset/external/
+dataset/processed/*.csv
+dataset/processed/*.gz
+dataset/processed_v2/*.csv
+dataset/processed_v2/fold_*/
+dataset/processed_v2/models/
+dataset/processed_v2/login/
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db

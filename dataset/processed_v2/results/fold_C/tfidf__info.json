@@ -1,0 +1,10 @@
+{
+  "kind": "tfidf+logreg (own)",
+  "train_seconds": 11.3,
+  "n_train": 14887,
+  "cpu_ms_per_msg_val": 0.377,
+  "cpu_ms_per_msg_test_in_dist": 0.336,
+  "cpu_ms_per_msg_test_cross": 0.418,
+  "cpu_ms_per_msg_test_campus": 0.059,
+  "cpu_ms_per_msg_spam_eval": 0.297
+}

@@ -1,0 +1,291 @@
+{
+  "seed": 42,
+  "similarity_threshold": 0.8,
+  "label_rule": "1 = phishing or scam meant to steal credentials, money or personal data\n                      0 = legitimate mail\n    phishing/scam sources : Nazario, Nigerian_Fraud\n    legitimate sources    : label-0 rows of CEAS_08, Enron, Ling, SpamAssassin\n    advertising spam      : label-1 rows of CEAS_08, Enron, Ling, SpamAssassin  -> NOT positive. Kept only in emails_spam_eval.csv\n    phishing_email.csv    : union of the six files above, skipped",
+  "loaded_rows": {
+    "CEAS_08": 39154,
+    "Enron": 29767,
+    "SpamAssassin": 5809,
+    "Nigerian_Fraud": 3332,
+    "Ling": 2859,
+    "Nazario": 1565
+  },
+  "rows_by_source_role_before": {
+    "CEAS_08": {
+      "spam": 21842,
+      "ham": 17312
+    },
+    "Enron": {
+      "ham": 15791,
+      "spam": 13976
+    },
+    "Ling": {
+      "ham": 2401,
+      "spam": 458
+    },
+    "Nazario": {
+      "phish": 1565
+    },
+    "Nigerian_Fraud": {
+      "phish": 3332
+    },
+    "SpamAssassin": {
+      "ham": 4091,
+      "spam": 1718
+    }
+  },
+  "markers_removed_rows_by_source": {
+    "CEAS_08": {
+      "quote_marks": 13203,
+      "separator_runs": 12396,
+      "reply_fwd_prefix": 10396,
+      "list_tag": 12617,
+      "tokenised_url_dump": 620,
+      "list_footer": 7206,
+      "enron_words": 133
+    },
+    "Enron": {
+      "reply_fwd_prefix": 5754,
+      "enron_words": 7849,
+      "quote_marks": 2388,
+      "list_tag": 1009,
+      "list_footer": 726
+    },
+    "Ling": {
+      "list_tag": 216,
+      "quote_marks": 388,
+      "list_footer": 148,
+      "reply_fwd_prefix": 221,
+      "enron_words": 1
+    },
+    "Nazario": {
+      "list_tag": 139,
+      "enron_words": 1,
+      "quote_marks": 32,
+      "separator_runs": 165,
+      "list_footer": 32,
+      "tokenised_url_dump": 1,
+      "reply_fwd_prefix": 77
+    },
+    "Nigerian_Fraud": {
+      "separator_runs": 999,
+      "list_tag": 194,
+      "quote_marks": 34,
+      "tokenised_url_dump": 92,
+      "reply_fwd_prefix": 70,
+      "list_footer": 16,
+      "enron_words": 1
+    },
+    "SpamAssassin": {
+      "reply_fwd_prefix": 2233,
+      "quote_marks": 2188,
+      "separator_runs": 2799,
+      "list_footer": 1864,
+      "list_tag": 2202,
+      "tokenised_url_dump": 171,
+      "enron_words": 26
+    }
+  },
+  "pii": {
+    "phone_numbers_masked": 7798,
+    "rows_with_greeting_name_masked": 5114,
+    "email_addresses": "replaced by 'emailtoken' (Preprocess.normalise)",
+    "limit": "no named-entity recognition: names in signatures/body are NOT masked, only names after Dear/Hi/Hello"
+  },
+  "dropped_too_short": 59,
+  "dropped_conflicting_roles": 6,
+  "dropped_exact_dups": 8196,
+  "near_duplicate_clusters_mixed_sources": 6,
+  "dropped_cross_source_near_dups": {
+    "CEAS_08/0": 9,
+    "Nazario/1": 1,
+    "Nigerian_Fraud/1": 9,
+    "SpamAssassin/0": 5
+  },
+  "dropped_within_source_near_dups": 9591,
+  "pool_rows_by_source_label": {
+    "CEAS_08/0": 12229,
+    "Enron/0": 12312,
+    "Ling/0": 2224,
+    "Nazario/1": 1204,
+    "Nigerian_Fraud/1": 1512,
+    "SpamAssassin/0": 3583
+  },
+  "synthetic": {
+    "train_rows": 3000,
+    "eval_rows": 200,
+    "exact_text_overlap_train_vs_eval": 0,
+    "note": "emails_test_campus.csv is SYNTHETIC: it measures campus-style handling, not real-world accuracy."
+  },
+  "folds": {
+    "C": {
+      "config": {
+        "train_neg": [
+          "Enron",
+          "Ling",
+          "SpamAssassin"
+        ],
+        "train_pos": "Nigerian_Fraud",
+        "test_pos": "Nazario",
+        "test_neg": "CEAS_08"
+      },
+      "train": {
+        "rows": 14887,
+        "phishing": 2743,
+        "legit": 12144,
+        "by_source": {
+          "Enron": 6000,
+          "Ling": 1798,
+          "Nigerian_Fraud": 1243,
+          "SpamAssassin": 2846,
+          "synthetic": 3000
+        }
+      },
+      "val": {
+        "rows": 1936,
+        "phishing": 143,
+        "legit": 1793,
+        "by_source": {
+          "Enron": 1213,
+          "Ling": 218,
+          "Nigerian_Fraud": 143,
+          "SpamAssassin": 362
+        }
+      },
+      "test_in_dist": {
+        "rows": 1997,
+        "phishing": 126,
+        "legit": 1871,
+        "by_source": {
+          "Enron": 1288,
+          "Ling": 208,
+          "Nigerian_Fraud": 126,
+          "SpamAssassin": 375
+        }
+      },
+      "test_cross": {
+        "rows": 13433,
+        "phishing": 1204,
+        "legit": 12229,
+        "by_source": {
+          "CEAS_08": 12229,
+          "Nazario": 1204
+        }
+      },
+      "synthetic_share_of_train": 0.202
+    },
+    "A": {
+      "config": {
+        "train_neg": [
+          "CEAS_08",
+          "Enron",
+          "Ling"
+        ],
+        "train_pos": "Nigerian_Fraud",
+        "test_pos": "Nazario",
+        "test_neg": "SpamAssassin"
+      },
+      "train": {
+        "rows": 18041,
+        "phishing": 2743,
+        "legit": 15298,
+        "by_source": {
+          "CEAS_08": 6000,
+          "Enron": 6000,
+          "Ling": 1798,
+          "Nigerian_Fraud": 1243,
+          "synthetic": 3000
+        }
+      },
+      "val": {
+        "rows": 2812,
+        "phishing": 143,
+        "legit": 2669,
+        "by_source": {
+          "CEAS_08": 1238,
+          "Enron": 1213,
+          "Ling": 218,
+          "Nigerian_Fraud": 143
+        }
+      },
+      "test_in_dist": {
+        "rows": 2813,
+        "phishing": 126,
+        "legit": 2687,
+        "by_source": {
+          "CEAS_08": 1191,
+          "Enron": 1288,
+          "Ling": 208,
+          "Nigerian_Fraud": 126
+        }
+      },
+      "test_cross": {
+        "rows": 4787,
+        "phishing": 1204,
+        "legit": 3583,
+        "by_source": {
+          "Nazario": 1204,
+          "SpamAssassin": 3583
+        }
+      },
+      "synthetic_share_of_train": 0.166
+    },
+    "B": {
+      "config": {
+        "train_neg": [
+          "CEAS_08",
+          "Enron",
+          "Ling"
+        ],
+        "train_pos": "Nazario",
+        "test_pos": "Nigerian_Fraud",
+        "test_neg": "SpamAssassin"
+      },
+      "train": {
+        "rows": 17778,
+        "phishing": 2480,
+        "legit": 15298,
+        "by_source": {
+          "CEAS_08": 6000,
+          "Enron": 6000,
+          "Ling": 1798,
+          "Nazario": 980,
+          "synthetic": 3000
+        }
+      },
+      "val": {
+        "rows": 2787,
+        "phishing": 118,
+        "legit": 2669,
+        "by_source": {
+          "CEAS_08": 1238,
+          "Enron": 1213,
+          "Ling": 218,
+          "Nazario": 118
+        }
+      },
+      "test_in_dist": {
+        "rows": 2793,
+        "phishing": 106,
+        "legit": 2687,
+        "by_source": {
+          "CEAS_08": 1191,
+          "Enron": 1288,
+          "Ling": 208,
+          "Nazario": 106
+        }
+      },
+      "test_cross": {
+        "rows": 5095,
+        "phishing": 1512,
+        "legit": 3583,
+        "by_source": {
+          "Nigerian_Fraud": 1512,
+          "SpamAssassin": 3583
+        }
+      },
+      "synthetic_share_of_train": 0.169
+    }
+  },
+  "spam_eval_rows": 3117
+}

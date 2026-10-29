@@ -1,0 +1,11 @@
+{
+  "downloaded_on": "2026-10-29",
+  "source_files": {
+    "firehol_level1.netset": 4644,
+    "firehol_level2.netset": 24308
+  },
+  "private_or_reserved_ranges_dropped": 13,
+  "merged_ranges": 28548,
+  "total_addresses": 18467711,
+  "note": "Refresh regularly and re-run. Check each list's licence before redistributing."
+}

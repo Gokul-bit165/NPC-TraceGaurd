@@ -9,10 +9,10 @@
 [data-theme='dark'] {
   color-scheme: dark;
   --ink-950: 11 17 32;     /* page background  #0B1120 */
-  --ink-900: 14 22 38;     /* inset surfaces   #0E1626 */
-  --ink-800: 17 27 46;     /* cards            #111B2E */
-  --ink-700: 23 35 56;     /* secondary        #172338 */
-  --ink-600: 38 52 73;     /* borders          #263449 */
+  --ink-900: 13 20 35;     /* inset surfaces   #0D1423 */
+  --ink-800: 17 24 39;     /* surfaces         #111827 */
+  --ink-700: 23 32 51;     /* secondary        #172033 */
+  --ink-600: 36 49 71;     /* borders          #243147 */
   --sidebar: 8 13 24;      /* sidebar          #080D18 */
 
   --slate-100: 241 245 249; /* main text       #F1F5F9 */
@@ -24,6 +24,7 @@
 
   --sky-200: 191 219 254; --sky-300: 147 197 253; --sky-400: 96 165 250;
   --sky-500: 59 130 246;  --sky-600: 37 99 235;   --sky-950: 23 37 84;
+  --cyan-300: 103 232 249; --cyan-400: 34 211 238; --cyan-500: 6 182 212; --cyan-600: 8 145 178;
   --rose-200: 254 205 211; --rose-300: 253 164 175; --rose-400: 251 113 133;
   --rose-500: 244 63 94;   --rose-600: 225 29 72;   --rose-700: 190 18 60; --rose-950: 76 5 25;
   --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36;
@@ -57,6 +58,7 @@
 
   --sky-200: 30 64 175;  --sky-300: 29 78 216;  --sky-400: 37 99 235;
   --sky-500: 59 130 246; --sky-600: 37 99 235;  --sky-950: 239 246 255;
+  --cyan-300: 14 116 144; --cyan-400: 8 145 178; --cyan-500: 6 182 212; --cyan-600: 8 145 178;
   --rose-200: 159 18 57; --rose-300: 190 18 60; --rose-400: 225 29 72;
   --rose-500: 244 63 94; --rose-600: 225 29 72; --rose-700: 190 18 60; --rose-950: 255 241 242;
   --amber-200: 146 64 14; --amber-300: 180 83 9; --amber-400: 217 119 6;
@@ -92,15 +94,19 @@ main .grid > *, main .flex > * { min-width: 0; }
 
 /* ------------------------------------------------------------------ components */
 @layer components {
-  .card { @apply rounded-xl border border-ink-600/70 bg-ink-800 shadow-card; }
+  .card { @apply rounded-xl border border-ink-600/60 bg-ink-800 shadow-card; }
+  /* Integrated panel: a quieter grouping than .card, for content that sits inside a larger section. */
+  .panel { @apply rounded-lg border border-ink-600/50 bg-ink-900/60; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400; }
+  .num { @apply font-semibold tabular-nums tracking-tight text-slate-100; }
   .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-primary { @apply bg-sky-600 text-white hover:bg-sky-500; }
+  .btn-primary { @apply bg-sky-600 text-white shadow-sm hover:bg-sky-500; }
   .btn-ghost { @apply border border-ink-600 bg-ink-800 text-slate-300 hover:bg-ink-700 hover:text-slate-100; }
   .btn-ok { @apply bg-emerald-600 text-white hover:bg-emerald-500; }
   .btn-bad { @apply bg-rose-700 text-white hover:bg-rose-600; }
   .input { @apply w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30; }
-  .th { @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
-  .td { @apply px-3 py-2.5 text-sm; }
+  .th { @apply whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400; }
+  .td { @apply px-4 py-3 text-sm; }
   .label { @apply mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
   .section-title { @apply text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
 
@@ -113,6 +119,29 @@ main .grid > *, main .flex > * { min-width: 0; }
     animation: shimmer 1.4s infinite;
   }
 }
+
+/* Non-modal detail pane (Logins). Below xl: slides over the page from the right, no backdrop.
+   xl and up: becomes a flex column that animates its width, which pushes the page content left. */
+.detail-pane {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+  width: min(100%, 460px);
+  transform: translateX(100%); visibility: hidden;
+  transition: transform 220ms ease, visibility 0s linear 220ms;
+}
+.detail-pane[data-open='true'] { transform: none; visibility: visible; transition: transform 220ms ease; }
+.detail-inner { height: 100%; width: 100%; }
+@media (min-width: 1280px) {
+  .detail-pane {
+    position: sticky; top: 5rem; right: auto; bottom: auto; z-index: auto;
+    flex: none; width: 0; margin-left: 0; height: calc(100vh - 6.5rem); overflow: hidden;
+    transform: none;
+    transition: width 220ms ease, margin-left 220ms ease, visibility 0s linear 220ms;
+  }
+  .detail-pane[data-open='true'] { width: clamp(400px, 32vw, 520px); margin-left: 1.5rem; transition: width 220ms ease, margin-left 220ms ease; }
+  .detail-inner { width: clamp(400px, 32vw, 520px); } /* fixed so content never reflows mid-animation */
+}
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 
 @keyframes shimmer { 100% { transform: translateX(100%); } }
 

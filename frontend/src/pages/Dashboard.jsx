@@ -3,28 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertOctagon,
   AlertTriangle,
-  CheckCircle,
+  ArrowRight,
   Clock,
-  Eye,
   KeyRound,
-  Mail,
   MailWarning,
   RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-  TrendingUp,
-  Users,
 } from 'lucide-react'
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -34,20 +23,30 @@ import api from '../api.js'
 import {
   Band,
   Card,
-  Chip,
   DateRangePicker,
   Empty,
   ErrorBox,
   PageHeader,
-  RiskBadge,
   Spinner,
   StatCard,
+  StatusBadge,
   when,
 } from '../ui.jsx'
 import { useChartTheme, SERIES } from '../theme.jsx'
 import { useAutoRefresh } from '../hooks/useAutoRefresh.js'
 import { useApi } from '../hooks/useApi.js'
+import { BANDS } from '../utils/riskUtils.js'
 import { formatDate } from '../utils/formatters.js'
+
+const BAND_ORDER = ['critical', 'high', 'medium', 'low']
+
+// One figure in the triage strip: value, then what it counts.
+const Figure = ({ value, label, tone = 'text-slate-100' }) => (
+  <div className="min-w-0 px-5 py-3.5">
+    <div className={`num text-xl ${tone}`}>{value}</div>
+    <div className="mt-0.5 text-xs text-slate-400">{label}</div>
+  </div>
+)
 
 export default function Dashboard() {
   const [days, setDays] = useState(14)
@@ -59,25 +58,29 @@ export default function Dashboard() {
     [days]
   )
 
-  const { lastUpdated, isRefreshing, refresh, autoRefreshEnabled, setAutoRefreshEnabled } =
-    useAutoRefresh(reload, 30000, true)
+  const { lastUpdated, isRefreshing, refresh } = useAutoRefresh(reload, 30000, true)
 
-  if (loading && !o) return <Spinner message="Loading security overview dashboard…" />
+  if (loading && !o) return <Spinner message="Loading security overview…" />
   if (error && !o) return <ErrorBox error={error} onRetry={reload} />
   if (!o) return <Empty>No dashboard data available.</Empty>
 
   const k = o?.kpis || {}
   const t = o?.triage || {}
   const openByBand = o?.open_by_band || {}
+  const activity = o.activity || []
+  const emailMix = o.email_mix || { flagged: 0, clean: 0 }
+  const emailTotal = (emailMix.flagged || 0) + (emailMix.clean || 0)
+  const openTotal = BAND_ORDER.reduce((n, b) => n + (openByBand[b] || 0), 0)
+  const hasActivity = activity.some((d) => d.phishing_emails || d.suspicious_logins)
+  const pct = (n, d, dec = 1) => (d ? `${((n / d) * 100).toFixed(dec)}%` : '0%')
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <PageHeader
-        title="Security Dashboard"
-        description="Unified security command center correlating phishing emails and suspicious sign-in events into ranked, actionable incidents."
+        title="Security Overview"
+        description="Phishing emails and suspicious sign-ins, correlated into ranked incidents for analyst review."
         right={
-          <div className="flex flex-wrap items-center gap-3">
+          <>
             <DateRangePicker
               days={days}
               onChangeDays={(d) => setDays(d)}
@@ -88,278 +91,232 @@ export default function Dashboard() {
                 { label: '90d', value: 90 },
               ]}
             />
-            <div className="flex items-center gap-2 rounded-lg border border-ink-600/60 bg-ink-900 px-2.5 py-1 text-xs text-slate-400">
-              <span className="flex items-center gap-1 text-slate-400">
-                <Clock size={13} className="text-slate-500" />
-                Updated {formatDate(lastUpdated, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
+            <div className="flex h-8 items-center gap-2 rounded-lg border border-ink-600 bg-ink-800 px-2.5 text-xs text-slate-400">
+              <Clock size={13} className="text-slate-500" />
+              <span>Updated {formatDate(lastUpdated, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
               <button
                 type="button"
                 onClick={refresh}
                 disabled={isRefreshing}
-                className="text-slate-400 hover:text-sky-300 transition disabled:opacity-50"
+                className="rounded text-slate-400 transition hover:text-sky-300 disabled:opacity-50"
                 title="Refresh now"
+                aria-label="Refresh dashboard"
               >
                 <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-sky-400' : ''} />
               </button>
             </div>
-          </div>
+          </>
         }
       />
 
-      {/* Key Number Metric Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      {/* Headline metrics: open cases first, then the two detection feeds */}
+      <section aria-label="Key metrics" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           icon={AlertOctagon}
-          label="Critical Threats"
+          label="Critical incidents"
           value={k.critical_incidents ?? 0}
-          sub="Requires immediate response"
+          sub="Open, need investigation now"
           tone="rose"
+          size="lg"
           onClick={() => navigate('/response')}
         />
         <StatCard
           icon={AlertTriangle}
-          label="High-Risk Incidents"
+          label="High-risk incidents"
           value={openByBand.high ?? 0}
-          sub="Potential compromise"
-          tone="amber"
+          sub="Open, potential compromise"
+          tone="orange"
+          size="lg"
           onClick={() => navigate('/response')}
         />
         <StatCard
           icon={MailWarning}
-          label="Phishing Emails"
+          label="Phishing emails"
           value={k.phishing_emails ?? 0}
-          sub={`Out of ${k.emails_analyzed?.toLocaleString() || 0} analyzed`}
+          sub={`of ${(k.emails_analyzed ?? 0).toLocaleString()} analyzed · medium risk or above`}
           tone="amber"
+          size="lg"
           onClick={() => navigate('/email')}
         />
         <StatCard
           icon={KeyRound}
-          label="Suspicious Logins"
+          label="Suspicious logins"
           value={k.suspicious_logins ?? 0}
-          sub={`Out of ${k.logins_scored?.toLocaleString() || 0} scored`}
+          sub={`of ${(k.logins_scored ?? 0).toLocaleString()} scored · medium risk or above`}
           tone="violet"
+          size="lg"
           onClick={() => navigate('/logins')}
         />
-      </div>
+      </section>
 
-      {/* Triage Summary Ribbon */}
-      <div className="card flex flex-wrap items-center justify-between gap-4 px-5 py-3.5 text-xs sm:text-sm bg-gradient-to-r from-ink-900 to-ink-800 border-ink-600/70">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <span className="flex items-center gap-1.5 font-bold text-slate-100">
-            <ShieldCheck size={16} className="text-sky-400" />
-            Triage Summary
-          </span>
-          <span className="text-slate-300">
-            <b className="text-slate-100 font-semibold">{t.events_scored?.toLocaleString() ?? 0}</b>{' '}
-            <span className="text-slate-400">events scored</span>
-          </span>
-          <span className="text-slate-300">
-            <b className="text-amber-300 font-semibold">{t.needs_review ?? 0}</b>{' '}
-            <span className="text-slate-400">
-              require human review ({((t.review_share ?? 0) * 100).toFixed(1)}% of events)
-            </span>
-          </span>
-          <span className="text-slate-300">
-            <b className="text-emerald-400 font-semibold">{t.auto_closed ?? 0}</b>{' '}
-            <span className="text-slate-400">low-risk cases auto-closed</span>
-          </span>
-          <span className="text-slate-300">
-            <b className="text-sky-400 font-semibold">{k.open_cases ?? 0}</b>{' '}
-            <span className="text-slate-400">active open cases</span>
-          </span>
-        </div>
-        <div className="text-[11px] text-slate-500 font-medium">
-          Automated baseline filtering saves ~{Math.max(0, 100 - Math.round((t.review_share ?? 0) * 100))}% analyst triage workload
-        </div>
-      </div>
+      {/* Triage: one integrated strip instead of four more cards */}
+      <section aria-label="Triage summary" className="card grid grid-cols-2 divide-ink-600/50 sm:grid-cols-4 sm:divide-x [&>*:nth-child(-n+2)]:border-b [&>*:nth-child(-n+2)]:border-ink-600/50 sm:[&>*:nth-child(-n+2)]:border-b-0 [&>*:nth-child(2)]:border-l [&>*:nth-child(2)]:border-ink-600/50 sm:[&>*:nth-child(2)]:border-l-0">
+        <Figure value={(t.events_scored ?? 0).toLocaleString()} label="Events scored (emails + logins)" />
+        <Figure
+          value={(t.needs_review ?? 0).toLocaleString()}
+          label={`Cases above low risk · ${((t.review_share ?? 0) * 100).toFixed(1)}% of events`}
+          tone="text-amber-300"
+        />
+        <Figure value={(t.auto_closed ?? 0).toLocaleString()} label="Low-risk cases auto-closed" tone="text-emerald-400" />
+        <Figure value={(k.open_cases ?? 0).toLocaleString()} label="Open or investigating cases" tone="text-sky-300" />
+      </section>
 
-      {/* Threat Activity & Email Mix Charts */}
+      {/* Trend + risk distribution */}
       <div className="grid gap-5 lg:grid-cols-3">
         <Card
-          title={`Threat Activity Over Time (${days} Days)`}
-          right={<span className="text-xs text-slate-400">Flagged events per day</span>}
+          title="Flagged Events Per Day"
+          subtitle={`Last ${days} days · emails and logins scored medium risk or above`}
           className="lg:col-span-2"
         >
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={o.activity || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorPhishing" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#fbbf24" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="colorLogins" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#a78bfa" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
-                <XAxis dataKey="day" {...ct.axis} />
-                <YAxis {...ct.axis} allowDecimals={false} />
-                <Tooltip {...ct.tooltip} />
-                <Legend {...ct.legend} />
-                <Area
-                  type="monotone"
-                  dataKey="phishing_emails"
-                  name="Phishing Emails"
-                  stroke="#fbbf24"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorPhishing)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="suspicious_logins"
-                  name="Suspicious Logins"
-                  stroke="#a78bfa"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorLogins)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {hasActivity ? (
+            <div className="h-72 w-full" role="img" aria-label="Area chart of flagged phishing emails and suspicious logins per day">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={activity} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gEmail" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={SERIES.email} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={SERIES.email} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gLogin" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={SERIES.login} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={SERIES.login} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="day" {...ct.axis} minTickGap={24} />
+                  <YAxis {...ct.axis} allowDecimals={false} />
+                  <Tooltip {...ct.tooltip} />
+                  <Legend {...ct.legend} />
+                  <Area type="monotone" dataKey="phishing_emails" name="Phishing emails" stroke={SERIES.email} strokeWidth={2} fill="url(#gEmail)" />
+                  <Area type="monotone" dataKey="suspicious_logins" name="Suspicious logins" stroke={SERIES.login} strokeWidth={2} fill="url(#gLogin)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <Empty>No flagged emails or logins in the last {days} days.</Empty>
+          )}
         </Card>
 
-        <Card
-          title="Phishing vs Clean Emails"
-          right={<span className="text-xs text-slate-400">Total: {k.emails_analyzed?.toLocaleString() || 0}</span>}
-        >
-          <div className="h-64 w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Flagged (Phishing)', value: o.email_mix?.flagged || 0 },
-                    { name: 'Clean (Legitimate)', value: o.email_mix?.clean || 0 },
-                  ]}
-                  dataKey="value"
-                  innerRadius={60}
-                  outerRadius={88}
-                  paddingAngle={3}
-                  stroke={ct.cellStroke}
-                  strokeWidth={2}
-                >
-                  <Cell fill="#f97316" />
-                  <Cell fill="#34d399" />
-                </Pie>
-                <Tooltip {...ct.tooltip} />
-                <Legend {...ct.legend} />
-              </PieChart>
-            </ResponsiveContainer>
+        <Card title="Open Cases by Risk Band" subtitle={`${openTotal.toLocaleString()} open or investigating`}>
+          <ul className="space-y-3.5">
+            {BAND_ORDER.map((b) => {
+              const n = openByBand[b] || 0
+              return (
+                <li key={b}>
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2 font-medium text-slate-200">
+                      <span className="h-2 w-2 rounded-full" style={{ background: BANDS[b].dot }} />
+                      {BANDS[b].label}
+                    </span>
+                    <span className="num text-sm">
+                      {n.toLocaleString()}
+                      <span className="ml-1.5 text-xs font-normal text-slate-500">{pct(n, openTotal, 0)}</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-ink-700" role="presentation">
+                    <div className="h-full rounded-full" style={{ width: pct(n, openTotal, 1), background: BANDS[b].dot }} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+
+          <div className="mt-6 border-t border-ink-600/50 pt-4">
+            <div className="flex items-baseline justify-between">
+              <span className="eyebrow">Email screening</span>
+              <span className="text-xs text-slate-400">{emailTotal.toLocaleString()} analyzed</span>
+            </div>
+            <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-emerald-500/30" role="img" aria-label={`${emailMix.flagged} of ${emailTotal} emails flagged`}>
+              <div className="h-full bg-orange-500" style={{ width: `${emailTotal ? Math.max((emailMix.flagged / emailTotal) * 100, emailMix.flagged ? 1.5 : 0) : 0}%` }} />
+            </div>
+            <div className="mt-2 flex justify-between text-xs">
+              <span className="text-orange-300">
+                <b className="font-semibold">{(emailMix.flagged || 0).toLocaleString()}</b> flagged · {pct(emailMix.flagged || 0, emailTotal)}
+              </span>
+              <span className="text-emerald-400">
+                <b className="font-semibold">{(emailMix.clean || 0).toLocaleString()}</b> clean
+              </span>
+            </div>
           </div>
         </Card>
       </div>
 
-      {/* Logins by Location, High-Risk Queue & Top Suspicious Users */}
-      <div className="grid gap-5 lg:grid-cols-3">
-        {/* Login activity by country */}
+      {/* Analyst work queues */}
+      <div className="grid gap-5 lg:grid-cols-2">
         <Card
-          title={`Login Activity by Country (${days} Days)`}
-          right={<span className="text-xs text-slate-400">Top 10 Sources</span>}
-        >
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={o.countries || []}
-                layout="vertical"
-                margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
-              >
-                <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
-                <XAxis type="number" {...ct.axis} />
-                <YAxis
-                  type="category"
-                  dataKey="country"
-                  {...ct.axis} width={34}
-                />
-                <Tooltip {...ct.tooltip} />
-                <Legend {...ct.legend} />
-                <Bar dataKey="flagged" name="Flagged" stackId="a" fill="#f97316" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="failed" name="Failed" stackId="a" fill={ct.neutral} radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        {/* High-risk incidents requiring action */}
-        <Card
-          title="High-Risk Incidents"
+          title="Action Queue"
+          subtitle="High and critical, by score"
           right={
-            <Link
-              to="/response"
-              className="text-xs font-medium text-sky-400 hover:text-sky-300 transition inline-flex items-center gap-1"
-            >
-              Open queue →
+            <Link to="/response" className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 transition hover:text-sky-300">
+              Open queue <ArrowRight size={12} />
             </Link>
           }
+          bodyClassName="p-2 sm:p-3"
         >
           {!o.action_needed || o.action_needed.length === 0 ? (
             <Empty>No high-risk incidents pending action.</Empty>
           ) : (
-            <ul className="divide-y divide-ink-600/50 max-h-72 overflow-y-auto pr-1">
+            <ul className="max-h-72 space-y-0.5 overflow-y-auto">
               {o.action_needed.map((c) => (
-                <li
-                  key={c.id}
-                  onClick={() => navigate(`/response/${c.id}`)}
-                  className="flex items-center justify-between py-2.5 px-1 hover:bg-ink-700/40 rounded-lg cursor-pointer transition"
-                >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <div className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-200">
-                      <span>{c.user}</span>
-                      {c.campaign_size > 1 && (
-                        <span className="text-[10px] text-rose-300 bg-rose-500/15 border border-rose-500/30 px-1 rounded">
-                          campaign of {c.campaign_size}
-                        </span>
-                      )}
-                    </div>
-                    <div className="truncate text-xs text-slate-400 mt-0.5">{c.headline}</div>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <Band band={c.band} score={c.score} />
-                    {c.pending_approvals > 0 && (
-                      <span className="text-[10px] font-semibold text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/30">
-                        {c.pending_approvals} to approve
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/response/${c.id}`)}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-left transition hover:bg-ink-700/50"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-200">
+                        {c.user}
+                        {c.campaign_size > 1 && (
+                          <span className="rounded border border-rose-500/30 bg-rose-500/10 px-1 text-[10px] font-normal text-rose-300">
+                            campaign of {c.campaign_size}
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </div>
+                      <span className="mt-0.5 block truncate text-xs text-slate-400">{c.headline}</span>
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <Band band={c.band} score={c.score} />
+                      {c.pending_approvals > 0 && (
+                        <span className="text-[10px] font-semibold text-amber-300">{c.pending_approvals} awaiting approval</span>
+                      )}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </Card>
 
-        {/* Top Suspicious Users */}
         <Card
           title="Top Suspicious Users"
+          subtitle="Open cases with the highest score"
           right={
-            <Link
-              to="/investigate"
-              className="text-xs font-medium text-sky-400 hover:text-sky-300 transition"
-            >
-              View all →
+            <Link to="/investigate" className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 transition hover:text-sky-300">
+              View all <ArrowRight size={12} />
             </Link>
           }
+          bodyClassName="p-2 sm:p-3"
         >
           {!o.top_users || o.top_users.length === 0 ? (
             <Empty>No flagged user activity.</Empty>
           ) : (
-            <ul className="divide-y divide-ink-600/50 max-h-72 overflow-y-auto pr-1">
+            <ul className="max-h-72 space-y-0.5 overflow-y-auto">
               {o.top_users.map((c) => (
-                <li
-                  key={c.id}
-                  onClick={() => navigate(`/investigate/${c.id}`)}
-                  className="flex items-center justify-between py-2.5 px-1 hover:bg-ink-700/40 rounded-lg cursor-pointer transition"
-                >
-                  <div className="min-w-0 pr-2">
-                    <div className="truncate text-sm font-medium text-slate-200 hover:text-sky-300">
-                      {c.user}
-                    </div>
-                    <div className="truncate text-xs text-slate-500 mt-0.5">
-                      Case #{c.id} · {c.headline}
-                    </div>
-                  </div>
-                  <Band band={c.band} score={c.score} />
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/investigate/${c.id}`)}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-left transition hover:bg-ink-700/50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-200">{c.user}</span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">
+                        Case #{c.id} · {c.headline}
+                      </span>
+                    </span>
+                    <Band band={c.band} score={c.score} />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -367,62 +324,42 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Recent Security Alerts Table */}
+      {/* Recent security alerts */}
       <Card
         title="Recent Security Alerts"
-        right={
-          <span className="text-xs text-slate-400">
-            {o.recent_alerts?.length || 0} latest cases
-          </span>
-        }
+        subtitle="Latest cases above low risk"
+        right={<span className="text-xs text-slate-400">{o.recent_alerts?.length || 0} cases</span>}
+        bodyClassName="p-0"
       >
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="border-b border-ink-600/60 bg-ink-900/40">
+            <thead className="border-b border-ink-600/50 bg-ink-900/50">
               <tr>
                 <th className="th">User</th>
-                <th className="th">What We Found</th>
-                <th className="th">Risk Band</th>
+                <th className="th">Finding</th>
+                <th className="th">Risk</th>
                 <th className="th">Status</th>
                 <th className="th text-right">Updated</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-600/40">
-              {o.recent_alerts?.length === 0 ? (
+              {!o.recent_alerts || o.recent_alerts.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="td text-center text-slate-500 py-6">
-                    No recent security alerts.
-                  </td>
+                  <td colSpan={5} className="td py-8 text-center text-slate-500">No recent security alerts.</td>
                 </tr>
               ) : (
                 o.recent_alerts.map((c) => (
-                  <tr
-                    key={c.id}
-                    onClick={() => navigate(`/investigate/${c.id}`)}
-                    className="hover:bg-ink-700/40 cursor-pointer transition"
-                  >
-                    <td className="td font-medium text-sky-300 hover:underline">
-                      {c.user}
+                  <tr key={c.id} className="transition-colors hover:bg-ink-700/40">
+                    <td className="td whitespace-nowrap font-medium">
+                      <Link to={`/investigate/${c.id}`} className="text-sky-300 hover:underline">{c.user}</Link>
                     </td>
-                    <td className="td text-slate-300 max-w-md truncate">
+                    <td className="td max-w-md truncate text-slate-300">
                       {c.headline}
-                      {c.campaign_size > 1 && (
-                        <span className="ml-1.5 text-xs text-slate-500">
-                          (campaign of {c.campaign_size})
-                        </span>
-                      )}
+                      {c.campaign_size > 1 && <span className="ml-1.5 text-xs text-slate-500">(campaign of {c.campaign_size})</span>}
                     </td>
-                    <td className="td">
-                      <Band band={c.band} score={c.score} />
-                    </td>
-                    <td className="td">
-                      <span className="capitalize text-slate-400 text-xs">
-                        {c.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="td text-right text-xs text-slate-500">
-                      {when(c.updated_at)}
-                    </td>
+                    <td className="td"><Band band={c.band} score={c.score} /></td>
+                    <td className="td"><StatusBadge status={c.status} /></td>
+                    <td className="td whitespace-nowrap text-right text-xs text-slate-500">{when(c.updated_at)}</td>
                   </tr>
                 ))
               )}

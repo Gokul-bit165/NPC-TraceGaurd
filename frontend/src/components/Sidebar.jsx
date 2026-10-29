@@ -30,12 +30,12 @@ export const STUDENT_NAV = [['/my-alerts', 'My Alerts', Bell]]
 export function Brand({ collapsed = false }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-white">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-cyan-600 text-white shadow-sm">
         <ShieldCheck size={20} />
       </div>
       {!collapsed && (
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold leading-tight tracking-tight text-slate-100">TRACEGUARD</div>
+          <div className="text-[15px] font-bold leading-tight tracking-[0.12em] text-slate-100">TRACEGUARD</div>
           <div className="truncate text-[11px] text-slate-400">Threat detection &amp; response</div>
         </div>
       )}
@@ -117,15 +117,14 @@ function SideLink({ to, label, Icon, collapsed, onClick }) {
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         `group flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors ${collapsed ? 'justify-center px-2' : 'px-3'} ${
-          isActive ? 'bg-sky-500/10 text-sky-400' : 'text-slate-400 hover:bg-ink-700 hover:text-slate-100'
+          isActive ? 'bg-sky-500/10 text-sky-300 shadow-[inset_2px_0_0_rgb(var(--sky-500))]' : 'text-slate-400 hover:bg-ink-700/70 hover:text-slate-100'
         }`
       }
     >
-      {({ isActive }) => (
+      {() => (
         <>
           <Icon size={18} className="shrink-0" />
           {!collapsed && <span className="truncate">{label}</span>}
-          {!collapsed && isActive && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400" />}
         </>
       )}
     </NavLink>

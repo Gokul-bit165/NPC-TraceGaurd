@@ -13,6 +13,7 @@ export default {
         sidebar: v('sidebar'),
         slate: scale('slate', [100, 200, 300, 400, 500, 600]),
         sky: scale('sky', ACCENT),
+        cyan: scale('cyan', [300, 400, 500, 600]),
         rose: scale('rose', [...ACCENT, 700]),
         amber: scale('amber', ACCENT),
         emerald: scale('emerald', ACCENT),

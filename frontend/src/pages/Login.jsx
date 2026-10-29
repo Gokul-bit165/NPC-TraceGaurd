@@ -65,10 +65,10 @@ export default function Login({ onSignedIn }) {
           }}
         />
         <div className="relative flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-cyan-600 text-white shadow-sm">
             <ShieldCheck size={24} />
           </div>
-          <span className="text-xl font-semibold tracking-tight text-slate-100">TRACEGUARD</span>
+          <span className="text-xl font-bold tracking-[0.14em] text-slate-100">TRACEGUARD</span>
         </div>
 
         <div className="relative max-w-lg">

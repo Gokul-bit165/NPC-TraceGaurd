@@ -348,9 +348,9 @@ export default function Reports() {
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-ink-600/60 bg-ink-900/50 sticky top-0">
                   <tr>
-                    <th className="th">Campaign Subject & Sender</th>
-                    <th className="th text-center">Recipients</th>
-                    <th className="th text-right">Max Risk</th>
+                    <th className="th !whitespace-normal">Campaign Subject & Sender</th>
+                    <th className="th w-[96px] text-center">Recipients</th>
+                    <th className="th w-[148px] text-right">Max Risk</th>
                     <th className="th text-right">Action</th>
                   </tr>
                 </thead>
@@ -361,16 +361,16 @@ export default function Reports() {
                       onClick={() => openCampaignDetail(c)}
                       className="hover:bg-ink-700/40 cursor-pointer transition"
                     >
-                      <td className="td">
-                        <div className="font-semibold text-slate-200 hover:text-sky-300 flex items-center gap-1">
-                          <span>{c.subject}</span>
-                          <ChevronRight size={13} className="text-slate-500" />
+                      <td className="td w-full max-w-0">
+                        <div className="font-semibold text-slate-200 hover:text-sky-300 flex items-center gap-1 min-w-0">
+                          <span className="truncate" title={c.subject}>{c.subject}</span>
+                          <ChevronRight size={13} className="shrink-0 text-slate-500" />
                         </div>
-                        <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        <div className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
                           {c.sender} · {when(c.first_seen)}
                         </div>
                       </td>
-                      <td className="td text-center">
+                      <td className="td w-[96px] whitespace-nowrap text-center">
                         <span className="font-bold text-slate-100 text-sm">
                           {c.recipients}
                         </span>
@@ -378,8 +378,8 @@ export default function Reports() {
                           {c.open_cases} open
                         </div>
                       </td>
-                      <td className="td text-right">
-                        <RiskBadge score={c.max_email_score} size="xs" />
+                      <td className="td w-[148px] whitespace-nowrap text-right">
+                        <RiskBadge score={c.max_email_score} aligned />
                       </td>
                       <td className="td text-right">
                         <button

@@ -1,13 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.card { @apply rounded-xl border border-ink-600/60 bg-ink-800; }
-.btn { @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed; }
-.btn-primary { @apply bg-sky-600 text-white hover:bg-sky-500; }
-.btn-ghost { @apply border border-ink-600 text-slate-300 hover:bg-ink-700; }
-.btn-ok { @apply bg-emerald-600 text-white hover:bg-emerald-500; }
-.btn-bad { @apply bg-rose-700 text-white hover:bg-rose-600; }
-.input { @apply w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500; }
-.th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-400; }
-.td { @apply px-3 py-2 text-sm; }
+
+/* ------------------------------------------------------------------ theme tokens (RGB channels) */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --ink-950: 11 17 32;     /* page background  #0B1120 */
+  --ink-900: 14 22 38;     /* inset surfaces   #0E1626 */
+  --ink-800: 17 27 46;     /* cards            #111B2E */
+  --ink-700: 23 35 56;     /* secondary        #172338 */
+  --ink-600: 38 52 73;     /* borders          #263449 */
+  --sidebar: 8 13 24;      /* sidebar          #080D18 */
+
+  --slate-100: 241 245 249; /* main text       #F1F5F9 */
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184; /* secondary text  #94A3B8 */
+  --slate-500: 100 116 139;
+  --slate-600: 71 85 105;
+
+  --sky-200: 191 219 254; --sky-300: 147 197 253; --sky-400: 96 165 250;
+  --sky-500: 59 130 246;  --sky-600: 37 99 235;   --sky-950: 23 37 84;
+  --rose-200: 254 205 211; --rose-300: 253 164 175; --rose-400: 251 113 133;
+  --rose-500: 244 63 94;   --rose-600: 225 29 72;   --rose-700: 190 18 60; --rose-950: 76 5 25;
+  --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36;
+  --amber-500: 245 158 11;  --amber-600: 217 119 6;  --amber-950: 69 26 3;
+  --emerald-200: 167 243 208; --emerald-300: 110 231 183; --emerald-400: 52 211 153;
+  --emerald-500: 16 185 129;  --emerald-600: 5 150 105;   --emerald-950: 2 44 34;
+  --violet-200: 221 214 254; --violet-300: 196 181 253; --violet-400: 167 139 250;
+  --violet-500: 139 92 246;  --violet-600: 124 58 237;  --violet-950: 46 16 101;
+  --orange-200: 254 215 170; --orange-300: 253 186 116; --orange-400: 251 146 60;
+  --orange-500: 249 115 22;  --orange-600: 234 88 12;   --orange-950: 67 20 7;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 20px 40px -12px rgb(0 0 0 / 0.6);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --ink-950: 245 247 251;  /* page background  #F5F7FB */
+  --ink-900: 248 250 252;  /* inset surfaces   #F8FAFC */
+  --ink-800: 255 255 255;  /* cards            #FFFFFF */
+  --ink-700: 241 245 249;  /* secondary        #F1F5F9 */
+  --ink-600: 226 232 240;  /* borders          #E2E8F0 */
+  --sidebar: 255 255 255;
+
+  --slate-100: 23 32 51;    /* main text       #172033 */
+  --slate-200: 30 41 59;
+  --slate-300: 51 65 85;
+  --slate-400: 100 116 139; /* secondary text  #64748B */
+  --slate-500: 100 116 139;
+  --slate-600: 148 163 184;
+
+  --sky-200: 30 64 175;  --sky-300: 29 78 216;  --sky-400: 37 99 235;
+  --sky-500: 59 130 246; --sky-600: 37 99 235;  --sky-950: 239 246 255;
+  --rose-200: 159 18 57; --rose-300: 190 18 60; --rose-400: 225 29 72;
+  --rose-500: 244 63 94; --rose-600: 225 29 72; --rose-700: 190 18 60; --rose-950: 255 241 242;
+  --amber-200: 146 64 14; --amber-300: 180 83 9; --amber-400: 217 119 6;
+  --amber-500: 245 158 11; --amber-600: 217 119 6; --amber-950: 255 251 235;
+  --emerald-200: 6 95 70; --emerald-300: 4 120 87; --emerald-400: 5 150 105;
+  --emerald-500: 16 185 129; --emerald-600: 5 150 105; --emerald-950: 236 253 245;
+  --violet-200: 91 33 182; --violet-300: 109 40 217; --violet-400: 124 58 237;
+  --violet-500: 139 92 246; --violet-600: 124 58 237; --violet-950: 245 243 255;
+  --orange-200: 154 52 18; --orange-300: 194 65 12; --orange-400: 234 88 12;
+  --orange-500: 249 115 22; --orange-600: 234 88 12; --orange-950: 255 247 237;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  --shadow-pop: 0 20px 40px -12px rgb(15 23 42 / 0.25);
+}
+
+/* ------------------------------------------------------------------ base */
+html { -webkit-text-size-adjust: 100%; }
+body {
+  @apply bg-ink-950 font-sans text-slate-200 antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+}
+/* Grid/flex children default to min-width:auto, so a wide table or chart would stretch its column and
+   push the whole page sideways on phones. Let them shrink; tables scroll inside their own wrappers. */
+main .grid > *, main .flex > * { min-width: 0; }
+::selection { @apply bg-sky-500/30; }
+*:focus-visible { @apply outline-none ring-2 ring-sky-500/70 ring-offset-0; }
+
+/* Thin, theme-aware scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--ink-600)) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgb(var(--ink-600)); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ------------------------------------------------------------------ components */
+@layer components {
+  .card { @apply rounded-xl border border-ink-600/70 bg-ink-800 shadow-card; }
+  .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply bg-sky-600 text-white hover:bg-sky-500; }
+  .btn-ghost { @apply border border-ink-600 bg-ink-800 text-slate-300 hover:bg-ink-700 hover:text-slate-100; }
+  .btn-ok { @apply bg-emerald-600 text-white hover:bg-emerald-500; }
+  .btn-bad { @apply bg-rose-700 text-white hover:bg-rose-600; }
+  .input { @apply w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30; }
+  .th { @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
+  .td { @apply px-3 py-2.5 text-sm; }
+  .label { @apply mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
+  .section-title { @apply text-[11px] font-semibold uppercase tracking-wider text-slate-400; }
+
+  /* Skeleton shimmer used by LoadingState */
+  .skeleton { @apply relative overflow-hidden rounded-md bg-ink-700; }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, rgb(var(--slate-400) / 0.08), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+}
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+
+/* Print the investigation without app chrome */
+@media print {
+  aside, header.app-header, .no-print { display: none !important; }
+  body { background: white; }
+}

@@ -5,13 +5,12 @@ import copy
 import json
 from contextlib import asynccontextmanager
 import os
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +19,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from . import reports, scenarios as sc, services
+from .auth import Actor, assert_owns, require_actor, require_admin, require_staff
 from .db import get_db, init_db
 from .engine import config as cfgmod
 from .engine import explain, respond
@@ -44,33 +44,11 @@ app = FastAPI(title="TraceGuard", version="1.0.0", lifespan=lifespan,
 app.add_middleware(CORSMiddleware, allow_origins=os.environ.get("TRACEGUARD_CORS", "*").split(","), allow_methods=["*"], allow_headers=["*"])
 
 
-# ------------------------------------------------------------------ demo role handling
-# Real deployments put the campus SSO (OIDC/SAML) in front and map groups to these roles. The demo reads
-# two headers set by the role switcher in the UI. Nothing here is a security boundary.
-@dataclass
-class Actor:
-    name: str
-    role: str
-    user_id: str = ""
-
-
-def actor(x_role: str = Header("analyst"), x_user: str = Header("Demo Analyst"), x_user_id: str = Header("")) -> Actor:
-    role = x_role.lower()
-    if role not in {"admin", "analyst", "user"}:
-        raise HTTPException(400, "unknown role")
-    return Actor(name=x_user, role=role, user_id=x_user_id)
-
-
-def staff(a: Actor = Depends(actor)) -> Actor:
-    if a.role not in {"admin", "analyst"}:
-        raise HTTPException(403, "analyst or admin role required")
-    return a
-
-
-def admin(a: Actor = Depends(actor)) -> Actor:
-    if a.role != "admin":
-        raise HTTPException(403, "admin role required")
-    return a
+# ------------------------------------------------------------------ auth
+# Auth logic lives in app.auth.  In demo mode (TRACEGUARD_DEMO_AUTH=1, the default)
+# the role is read from the X-Role header, matching the old behaviour exactly.
+# Set TRACEGUARD_DEMO_AUTH=0 and configure TRACEGUARD_OIDC_* env vars to enable
+# real OIDC/JWT validation against a campus SSO.
 
 
 @app.exception_handler(WorkflowError)
@@ -105,22 +83,22 @@ def health(db: Session = Depends(get_db)):
 
 # ------------------------------------------------------------------ dashboard & reports
 @app.get("/api/overview")
-def overview(days: int = Query(14, ge=1, le=90), db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def overview(days: int = Query(14, ge=1, le=90), db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     return reports.overview(db, days)
 
 
 @app.get("/api/reports")
-def get_reports(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def get_reports(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     return reports.reports(db, days)
 
 
 @app.get("/api/campaigns")
-def get_campaigns(db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def get_campaigns(db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     return reports.campaigns(db)
 
 
 @app.get("/api/audit")
-def get_audit(case_id: Optional[int] = None, limit: int = Query(100, le=500), db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def get_audit(case_id: Optional[int] = None, limit: int = Query(100, le=500), db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     q = select(AuditRow).order_by(AuditRow.ts.desc(), AuditRow.id.desc()).limit(limit)
     if case_id:
         q = q.where(AuditRow.case_id == case_id)
@@ -132,7 +110,7 @@ def get_audit(case_id: Optional[int] = None, limit: int = Query(100, le=500), db
 async def analyze_email_endpoint(
     file: Optional[UploadFile] = File(None), sender: str = Form(""), subject: str = Form(""), body: str = Form(""), urls: str = Form(""),
     reply_to: str = Form(""), recipient: str = Form(""), save: bool = Form(False),
-    db: Session = Depends(get_db), a: Actor = Depends(staff),
+    db: Session = Depends(get_db), a: Actor = Depends(require_staff),
 ):
     """Analyse an uploaded .eml or typed fields. Dry run unless `save` is true and the recipient is a known user."""
     cfg = cfgmod.get()
@@ -179,7 +157,7 @@ async def analyze_email_endpoint(
 @app.get("/api/logins")
 def list_logins(q: str = "", country: str = "", city: str = "", device: str = "", risk: str = "", success: Optional[bool] = None,
                 start: Optional[str] = None, end: Optional[str] = None, unusual_only: bool = False,
-                limit: int = Query(50, le=200), offset: int = 0, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+                limit: int = Query(50, le=200), offset: int = 0, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     cfg = cfgmod.get()
     stmt = select(LoginRow, UserRow).join(UserRow, UserRow.id == LoginRow.user_id, isouter=True)
     if q:
@@ -210,7 +188,7 @@ def list_logins(q: str = "", country: str = "", city: str = "", device: str = ""
 
 
 @app.get("/api/users/{ident}/logins")
-def user_logins(ident: str, limit: int = Query(300, le=1000), db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def user_logins(ident: str, limit: int = Query(300, le=1000), db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     u = services.resolve_user(db, ident)
     if not u:
         raise HTTPException(404, "user not found")
@@ -225,7 +203,7 @@ def user_logins(ident: str, limit: int = Query(300, le=1000), db: Session = Depe
 
 
 @app.get("/api/facets")
-def facets(db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def facets(db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     return {"countries": [c for (c,) in db.execute(select(LoginRow.country).distinct().order_by(LoginRow.country)) if c],
             "devices": [d for (d,) in db.execute(select(LoginRow.device).distinct().order_by(LoginRow.device)) if d]}
 
@@ -233,15 +211,20 @@ def facets(db: Session = Depends(get_db), a: Actor = Depends(staff)):
 # ------------------------------------------------------------------ cases (pages 4 and 5)
 @app.get("/api/cases")
 def list_cases(band: str = "", status: str = "", q: str = "", sort: str = "score", scenario: bool = False,
-               limit: int = Query(100, le=500), offset: int = 0, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+               limit: int = Query(100, le=500), offset: int = 0, db: Session = Depends(get_db), a: Actor = Depends(require_actor)):
     stmt = select(CaseRow, UserRow).join(UserRow, UserRow.id == CaseRow.user_id, isouter=True)
+    # users (role=="user") may only see their own cases
+    if not a.is_staff():
+        if not a.user_id:
+            raise HTTPException(400, "send X-User-Id (or log in) to read your own cases")
+        stmt = stmt.where(CaseRow.user_id == a.user_id)
     if band:
         stmt = stmt.where(CaseRow.band.in_(band.split(",")))
     if status == "active":
         stmt = stmt.where(CaseRow.status.in_(services.ACTIVE))
     elif status:
         stmt = stmt.where(CaseRow.status.in_(status.split(",")))
-    if q:
+    if q and a.is_staff():   # free-text search only meaningful for staff
         like = f"%{q.lower()}%"
         stmt = stmt.where(or_(func.lower(UserRow.name).like(like), func.lower(UserRow.email).like(like), func.lower(CaseRow.user_id).like(like), func.lower(CaseRow.headline).like(like)))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -252,10 +235,12 @@ def list_cases(band: str = "", status: str = "", q: str = "", sort: str = "score
 
 
 @app.get("/api/cases/{case_id}")
-def get_case(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def get_case(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(require_actor)):
     c = db.get(CaseRow, case_id)
     if not c:
         raise HTTPException(404, "case not found")
+    # users may only fetch their own case
+    assert_owns(a, c.user_id)
     u = db.get(UserRow, c.user_id)
     res = json.loads(c.result_json or "{}")
     acts = db.scalars(select(ActionRow).where(ActionRow.case_id == c.id).order_by(ActionRow.order)).all()
@@ -300,7 +285,7 @@ class Decision(BaseModel):
 
 
 @app.post("/api/cases/{case_id}/actions/{action_id}")
-def decide(case_id: int, action_id: int, body: Decision, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def decide(case_id: int, action_id: int, body: Decision, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     act = services.decide_action(db, case_id, action_id, body.decision, a.name, a.role, body.note)
     db.commit()
     return action_dict(act)
@@ -311,7 +296,7 @@ class StatusBody(BaseModel):
 
 
 @app.post("/api/cases/{case_id}/status")
-def change_status(case_id: int, body: StatusBody, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def change_status(case_id: int, body: StatusBody, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     c = services.set_status(db, case_id, body.status, a.name, a.role)
     db.commit()
     return case_brief(c, db.get(UserRow, c.user_id))
@@ -322,14 +307,14 @@ class VerdictBody(BaseModel):
 
 
 @app.post("/api/cases/{case_id}/verdict")
-def verdict(case_id: int, body: VerdictBody, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def verdict(case_id: int, body: VerdictBody, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     c = services.set_verdict(db, case_id, body.verdict, a.name, a.role)
     db.commit()
     return case_brief(c, db.get(UserRow, c.user_id))
 
 
 @app.post("/api/cases/{case_id}/reanalyze")
-def reanalyze(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def reanalyze(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     c = db.get(CaseRow, case_id)
     if not c:
         raise HTTPException(404, "case not found")
@@ -339,7 +324,7 @@ def reanalyze(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(st
 
 
 @app.get("/api/cases/{case_id}/report", response_class=PlainTextResponse)
-def case_report(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(staff)):
+def case_report(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
     c = db.get(CaseRow, case_id)
     if not c:
         raise HTTPException(404, "case not found")
@@ -351,7 +336,7 @@ def case_report(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(
 
 # ------------------------------------------------------------------ student / staff view
 @app.get("/api/me/alerts")
-def my_alerts(db: Session = Depends(get_db), a: Actor = Depends(actor)):
+def my_alerts(db: Session = Depends(get_db), a: Actor = Depends(require_actor)):
     if not a.user_id:
         raise HTTPException(400, "send X-User-Id to read your own alerts")
     rows = db.scalars(select(NotificationRow).where(NotificationRow.user_id == a.user_id).order_by(NotificationRow.ts.desc()).limit(30)).all()
@@ -364,7 +349,7 @@ class Ack(BaseModel):
 
 
 @app.post("/api/me/alerts/{nid}/ack")
-def ack_alert(nid: int, body: Ack, db: Session = Depends(get_db), a: Actor = Depends(actor)):
+def ack_alert(nid: int, body: Ack, db: Session = Depends(get_db), a: Actor = Depends(require_actor)):
     n = db.get(NotificationRow, nid)
     if not n or n.user_id != a.user_id:
         raise HTTPException(404, "alert not found")
@@ -393,7 +378,7 @@ class LoginIn(BaseModel):
 
 
 @app.post("/api/ingest/logins")
-def ingest_logins(batch: list[LoginIn], db: Session = Depends(get_db), a: Actor = Depends(admin)):
+def ingest_logins(batch: list[LoginIn], db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
     cfg = cfgmod.get()
     if len(batch) > 5000:
         raise HTTPException(413, "batch limit is 5000 events")
@@ -422,7 +407,7 @@ class EmailIn(BaseModel):
 
 
 @app.post("/api/ingest/email")
-def ingest_email(body: EmailIn, db: Session = Depends(get_db), a: Actor = Depends(admin)):
+def ingest_email(body: EmailIn, db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
     u = services.resolve_user(db, body.recipient)
     if not u:
         raise HTTPException(404, "recipient is not a known user")
@@ -448,7 +433,7 @@ def _scenario_table(cfg: dict) -> list[dict]:
 
 
 @app.get("/api/config")
-def get_config(a: Actor = Depends(staff)):
+def get_config(a: Actor = Depends(require_staff)):
     return cfgmod.get()
 
 
@@ -468,7 +453,7 @@ def _merge(base: dict, patch: dict) -> dict:
 
 
 @app.post("/api/config/simulate")
-def simulate_config(body: ConfigBody, a: Actor = Depends(staff)):
+def simulate_config(body: ConfigBody, a: Actor = Depends(require_staff)):
     try:
         cfg = cfgmod.validate(_merge(cfgmod.get(), body.overrides))
     except Exception as exc:
@@ -478,7 +463,7 @@ def simulate_config(body: ConfigBody, a: Actor = Depends(staff)):
 
 
 @app.put("/api/config")
-def save_config(body: ConfigBody, db: Session = Depends(get_db), a: Actor = Depends(admin)):
+def save_config(body: ConfigBody, db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
     try:
         cfg = cfgmod.validate(_merge(cfgmod.get(), body.overrides))
     except Exception as exc:
@@ -496,7 +481,7 @@ def save_config(body: ConfigBody, db: Session = Depends(get_db), a: Actor = Depe
 
 # ------------------------------------------------------------------ evaluation page
 @app.get("/api/evaluation")
-def evaluation(a: Actor = Depends(staff)):
+def evaluation(a: Actor = Depends(require_staff)):
     def read(name):
         p = MODEL_DIR / name
         return json.loads(p.read_text()) if p.exists() else None

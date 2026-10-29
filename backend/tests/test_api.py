@@ -18,7 +18,8 @@ def test_health_and_overview(client):
 
 
 def test_roles(client):
-    assert client.get("/api/cases", headers={"x-role": "user"}).status_code == 403
+    # user without X-User-Id gets 400 (not 403 – users ARE allowed but must identify)
+    assert client.get("/api/cases", headers={"x-role": "user"}).status_code == 400
     assert client.get("/api/cases", headers={"x-role": "nonsense"}).status_code == 400
     assert client.put("/api/config", json={"overrides": {}}, headers=H).status_code == 403
 

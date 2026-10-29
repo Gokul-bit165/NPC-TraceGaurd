@@ -1,9 +1,10 @@
 import React from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Check, Lock, RotateCcw, X } from 'lucide-react'
+import { Check, Lock, RotateCcw, ShieldAlert, X } from 'lucide-react'
 import api, { errText, getRole } from '../api.js'
 import { Band, Card, Chip, Empty, ErrorBox, Spinner, useLoad, when } from '../ui.jsx'
 import { CaseList } from './Investigation.jsx'
+import CampaignModal from '../components/CampaignModal.jsx'
 
 export default function Response() {
   const { id } = useParams()
@@ -27,11 +28,14 @@ function Workflow({ id }) {
   const { data: d, error, loading, reload } = useLoad(() => api.get(`/cases/${id}`), [id])
   const [msg, setMsg] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const [campaignModalKey, setCampaignModalKey] = React.useState(null)
+
   if (loading && !d) return <Spinner />
   if (error) return <ErrorBox error={error} />
   const byCode = Object.fromEntries(d.actions.map((a) => [a.code, a]))
   const act = async (fn) => { setBusy(true); setMsg(''); try { await fn(); await reload() } catch (e) { setMsg(errText(e)) } finally { setBusy(false) } }
   const decide = (a, decision) => act(() => api.post(`/cases/${id}/actions/${a.id}`, { decision }))
+  const undoAction = (a) => act(() => api.post(`/cases/${id}/actions/${a.id}/undo`, { note: 'Undone by analyst in response console' }))
   const status = (s) => act(() => api.post(`/cases/${id}/status`, { status: s }))
   const verdict = (v) => act(() => api.post(`/cases/${id}/verdict`, { verdict: v }))
   const c = d.case
@@ -46,7 +50,18 @@ function Workflow({ id }) {
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
               <Chip tone={c.status === 'resolved' ? 'emerald' : c.status === 'investigating' ? 'sky' : 'amber'}>{c.status.replace('_', ' ')}</Chip>
               {c.assignee && <span>assigned to {c.assignee}</span>}
-              {c.campaign_size > 1 && <Chip tone="rose">same message reached {c.campaign_size} people</Chip>}
+              {c.campaign_key && c.campaign_size > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setCampaignModalKey(c.campaign_key)}
+                  className="btn btn-ghost !py-0.5 !px-2 text-xs text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
+                >
+                  <ShieldAlert size={12} />
+                  Act on Campaign ({c.campaign_size} recipients)
+                </button>
+              ) : (
+                c.campaign_size > 1 && <Chip tone="rose">same message reached {c.campaign_size} people</Chip>
+              )}
               {c.verdict && <Chip tone={c.verdict === 'true_positive' ? 'rose' : 'emerald'}>{c.verdict.replace('_', ' ')}</Chip>}
             </div>
           </div>
@@ -84,6 +99,17 @@ function Workflow({ id }) {
                     <button className="btn btn-ghost" disabled={busy} onClick={() => decide(a, 'reject')}><X size={14} /> Reject</button>
                   </div>
                 )}
+                {a.status === 'approved' && a.reversible && (
+                  <div className="flex gap-2">
+                    <button
+                      className="btn btn-ghost text-xs text-amber-300 hover:text-amber-200"
+                      disabled={busy}
+                      onClick={() => undoAction(a)}
+                    >
+                      <RotateCcw size={13} /> Undo action
+                    </button>
+                  </div>
+                )}
               </li>
             )
           })}
@@ -119,6 +145,15 @@ function Workflow({ id }) {
           </table>
         )}
       </Card>
+
+      {campaignModalKey && (
+        <CampaignModal
+          campaignKey={campaignModalKey}
+          onClose={() => setCampaignModalKey(null)}
+          onSuccess={reload}
+        />
+      )}
     </>
   )
 }
+

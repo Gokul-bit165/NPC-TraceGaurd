@@ -1,23 +1,40 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bell, ShieldAlert } from 'lucide-react'
 import api from '../api.js'
 import { Band, Card, Empty, ErrorBox, Spinner, useLoad, when } from '../ui.jsx'
+import CampaignModal from '../components/CampaignModal.jsx'
+import DailySummaryModal from '../components/DailySummaryModal.jsx'
 
 const tip = { contentStyle: { background: '#151c2b', border: '1px solid #2a3550', borderRadius: 8, fontSize: 12 } }
 
 export default function Reports() {
-  const { data: r, error, loading } = useLoad(() => api.get('/reports'))
+  const { data: r, error, loading, reload: reloadReports } = useLoad(() => api.get('/reports'))
   const camps = useLoad(() => api.get('/campaigns'))
+  const [activeCampaignKey, setActiveCampaignKey] = React.useState(null)
+  const [showDailySummary, setShowDailySummary] = React.useState(false)
+
   if (loading) return <Spinner />
   if (error) return <ErrorBox error={error} />
   const fp = r.verdicts
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Reports and Analytics</h1>
-        <p className="text-sm text-slate-400">Threat statistics, user risk, phishing campaigns, investigation history and where analysts say the signals are wrong.</p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-white">Reports and Analytics</h1>
+          <p className="text-sm text-slate-400">Threat statistics, user risk, phishing campaigns, investigation history and where analysts say the signals are wrong.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowDailySummary(true)}
+          className="btn btn-ghost text-sky-400 hover:text-white"
+        >
+          <Bell size={15} />
+          Analyst Digest & Notifications
+        </button>
       </div>
+
       <div className="grid gap-5 lg:grid-cols-3">
         <Card title="New cases by risk band" className="lg:col-span-2">
           <ResponsiveContainer width="100%" height={240}>
@@ -38,12 +55,55 @@ export default function Reports() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card title="Phishing campaigns (same message, many recipients)">
+        <Card
+          title="Phishing campaigns (same message, many recipients)"
+          right={<span className="text-xs text-slate-500">Click a campaign to manage batch actions</span>}
+        >
           {!camps.data?.length ? <Empty>No campaigns.</Empty> : (
-            <table className="w-full"><thead><tr><th className="th">Sender and subject</th><th className="th">Recipients</th><th className="th">Max score</th></tr></thead>
-              <tbody className="divide-y divide-ink-600/40">{camps.data.map((c) => (
-                <tr key={c.key}><td className="td"><div className="text-slate-200">{c.subject}</div><div className="text-xs text-slate-500">{c.sender} · {when(c.first_seen)}</div></td><td className="td text-white">{c.recipients}<div className="text-xs text-slate-500">{c.open_cases} open</div></td><td className="td"><Band band={c.max_email_score >= 60 ? 'high' : 'medium'} score={c.max_email_score} /></td></tr>
-              ))}</tbody></table>
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="th">Sender and subject</th>
+                  <th className="th">Recipients</th>
+                  <th className="th">Max score</th>
+                  <th className="th text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-600/40">
+                {camps.data.map((c) => (
+                  <tr
+                    key={c.key}
+                    onClick={() => setActiveCampaignKey(c.key)}
+                    className="cursor-pointer transition hover:bg-ink-700/40"
+                  >
+                    <td className="td">
+                      <div className="font-medium text-slate-200">{c.subject}</div>
+                      <div className="text-xs text-slate-500">{c.sender} · {when(c.first_seen)}</div>
+                    </td>
+                    <td className="td text-white">
+                      {c.recipients}
+                      <div className="text-xs text-slate-500">{c.open_cases} open</div>
+                    </td>
+                    <td className="td">
+                      <Band band={c.max_email_score >= 60 ? 'high' : 'medium'} score={c.max_email_score} />
+                    </td>
+                    <td className="td text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setActiveCampaignKey(c.key)
+                        }}
+                        className="btn btn-ghost !px-2.5 !py-1 text-xs text-sky-400 hover:text-white"
+                      >
+                        <ShieldAlert size={13} />
+                        Act
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </Card>
         <Card title="Evidence signals that drive cases">
@@ -77,6 +137,26 @@ export default function Reports() {
           ))}</tbody>
         </table>
       </Card>
+
+      {/* Campaign action modal */}
+      {activeCampaignKey && (
+        <CampaignModal
+          campaignKey={activeCampaignKey}
+          onClose={() => setActiveCampaignKey(null)}
+          onSuccess={() => {
+            camps.reload()
+            reloadReports()
+          }}
+        />
+      )}
+
+      {/* Daily Summary Modal */}
+      {showDailySummary && (
+        <DailySummaryModal
+          onClose={() => setShowDailySummary(false)}
+        />
+      )}
     </div>
   )
 }
+

@@ -36,7 +36,12 @@ class LoginRow(Base):
     risk: Mapped[int] = mapped_column(Integer, default=0)
     risk_band: Mapped[str] = mapped_column(String(10), default="low", index=True)
     flags: Mapped[str] = mapped_column(Text, default="")        # comma-separated reason codes at ingest time
-    __table_args__ = (Index("ix_login_user_ts", "user_id", "ts"),)
+    __table_args__ = (
+        Index("ix_login_user_ts", "user_id", "ts"),
+        Index("ix_login_ip_ts", "ip", "ts"),
+        Index("ix_login_dev_ip_succ", "device", "ip", "success"),
+        Index("ix_login_risk_ts", "risk_band", "ts"),
+    )
 
 
 class EmailRow(Base):
@@ -57,6 +62,10 @@ class EmailRow(Base):
     risk_band: Mapped[str] = mapped_column(String(10), default="low", index=True)
     probability: Mapped[float | None] = mapped_column(Float, nullable=True)
     campaign_key: Mapped[str] = mapped_column(String(20), default="", index=True)
+    __table_args__ = (
+        Index("ix_email_user_recv", "user_id", "received_at"),
+        Index("ix_email_camp_recv", "campaign_key", "received_at"),
+    )
 
 
 class CaseRow(Base):
@@ -83,6 +92,11 @@ class CaseRow(Base):
     result_json: Mapped[str] = mapped_column(Text, default="{}")
     narrative_json: Mapped[str] = mapped_column(Text, default="{}")
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        Index("ix_case_user_status", "user_id", "status"),
+        Index("ix_case_band_status", "band", "status"),
+        Index("ix_case_score_camp", "score", "campaign_size"),
+    )
 
 
 class ActionRow(Base):
@@ -101,6 +115,9 @@ class ActionRow(Base):
     decided_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
+    __table_args__ = (
+        Index("ix_action_case_status", "case_id", "status"),
+    )
 
 
 class AuditRow(Base):
@@ -112,6 +129,9 @@ class AuditRow(Base):
     event: Mapped[str] = mapped_column(String(60), index=True)
     case_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     detail: Mapped[str] = mapped_column(Text, default="")
+    __table_args__ = (
+        Index("ix_audit_case_ts", "case_id", "ts"),
+    )
 
 
 class FeedbackRow(Base):

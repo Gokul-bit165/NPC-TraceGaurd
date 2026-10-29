@@ -1,0 +1,140 @@
+{
+  "timestamp": "2026-10-29T07:16:11.407312+00:00",
+  "machine": {
+    "cpus": 12,
+    "python": "3.14.7",
+    "platform": "Windows-11-10.0.26300-SP0"
+  },
+  "equivalence": {
+    "status": "passed",
+    "total_cases_single": 41,
+    "total_cases_multi": 41,
+    "match": true,
+    "sample_cases": [
+      {
+        "id": 1,
+        "user_id": "u-aisha",
+        "score": 100,
+        "email_score": 90,
+        "login_score": 57,
+        "band": "critical",
+        "scenario": "phish_takeover",
+        "correlated": true,
+        "headline": "Likely account compromise after phishing"
+      },
+      {
+        "id": 2,
+        "user_id": "u-rohan",
+        "score": 79,
+        "email_score": 90,
+        "login_score": 0,
+        "band": "high",
+        "scenario": "phish_only",
+        "correlated": false,
+        "headline": "Suspicious email, no sign of compromise yet"
+      },
+      {
+        "id": 3,
+        "user_id": "u-meera",
+        "score": 36,
+        "email_score": 36,
+        "login_score": 0,
+        "band": "medium",
+        "scenario": "spoofed_harmless",
+        "correlated": false,
+        "headline": "Suspicious email, no sign of compromise yet"
+      },
+      {
+        "id": 4,
+        "user_id": "u-nikhil",
+        "score": 32,
+        "email_score": 0,
+        "login_score": 32,
+        "band": "medium",
+        "scenario": "student_trip",
+        "correlated": false,
+        "headline": "Suspicious sign-in, no related email"
+      },
+      {
+        "id": 5,
+        "user_id": "u-sara",
+        "score": 65,
+        "email_score": 0,
+        "login_score": 65,
+        "band": "high",
+        "scenario": "impossible_travel",
+        "correlated": false,
+        "headline": "Suspicious sign-in, no related email"
+      },
+      {
+        "id": 6,
+        "user_id": "u-vikram",
+        "score": 72,
+        "email_score": 0,
+        "login_score": 72,
+        "band": "high",
+        "scenario": "credential_stuffing",
+        "correlated": false,
+        "headline": "Suspicious sign-in, no related email"
+      },
+      {
+        "id": 7,
+        "user_id": "u-tanvi",
+        "score": 9,
+        "email_score": 0,
+        "login_score": 9,
+        "band": "low",
+        "scenario": "lab_machine",
+        "correlated": false,
+        "headline": "Low risk: no action needed"
+      },
+      {
+        "id": 8,
+        "user_id": "u-farhan",
+        "score": 79,
+        "email_score": 100,
+        "login_score": 0,
+        "band": "high",
+        "scenario": "prompt_injection",
+        "correlated": false,
+        "headline": "Suspicious email, no sign of compromise yet"
+      }
+    ],
+    "diff_count": 0
+  },
+  "interface_delay": {
+    "simultaneous_users": 50,
+    "total_requests": 189,
+    "mean_delay_ms": 1502.0,
+    "median_p50_ms": 1591.72,
+    "p90_ms": 2101.33,
+    "p95_ms": 2180.57,
+    "p99_ms": 2706.5,
+    "max_delay_ms": 3216.23,
+    "queue_burst_ingest_ms": 272.89,
+    "sync_ingest_50_events_ms": 118.82
+  },
+  "scoring_throughput": {
+    "1_workers": {
+      "workers": 1,
+      "total_logins": 1200,
+      "seconds": 10.775,
+      "logins_per_second": 111.4,
+      "speedup": 1.0
+    },
+    "2_workers": {
+      "workers": 2,
+      "total_logins": 1200,
+      "seconds": 9.958,
+      "logins_per_second": 120.5,
+      "speedup": 1.08
+    },
+    "4_workers": {
+      "workers": 4,
+      "total_logins": 1200,
+      "seconds": 9.216,
+      "logins_per_second": 130.2,
+      "speedup": 1.17
+    }
+  }
+}

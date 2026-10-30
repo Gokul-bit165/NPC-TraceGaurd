@@ -1,0 +1,93 @@
+{
+  "name": "workflow email",
+  "nodes": [
+    {
+      "parameters": {
+        "format": "raw",
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]"
+        }
+      },
+      "name": "Mailbox (IMAP)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The recipient must be a user TraceGuard knows (email or id).\nconst j = $input.first().json;\nconst raw = j.raw ?? j.textPlain ?? \"\";\nconst to = (j.to?.value?.[0]?.address) ?? (j.to?.text ?? \"\").replace(/.*<|>.*/g, \"\");\nreturn [{ json: { recipient: (to || \"\").trim(), raw_eml: String(raw) } }];"
+      },
+      "name": "Build ingest body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/ingest/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "admin"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-connector"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({recipient: $json.recipient, raw_eml: $json.raw_eml}) }}",
+        "options": {}
+      },
+      "name": "POST /api/ingest/email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Mailbox (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Build ingest body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build ingest body": {
+      "main": [
+        [
+          {
+            "node": "POST /api/ingest/email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

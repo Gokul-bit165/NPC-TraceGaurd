@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Sparkles,
 } from 'lucide-react'
+import DecisionPanel from '../components/DecisionPanel.jsx'
 import api, { errText } from '../api.js'
 import {
   Card,
@@ -250,6 +251,8 @@ function CaseView({ id }) {
           </div>
         )}
       </Card>
+
+      <DecisionPanel caseId={c.id} />
 
       {/* Risk score + breakdown */}
       <Card title="Risk score and breakdown" right={<span className="text-xs text-slate-400">Computed by the backend; shown unchanged</span>}>

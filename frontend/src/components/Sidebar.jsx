@@ -5,11 +5,10 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FileSearch,
-  FlaskConical,
   KeyRound,
   LayoutDashboard,
   LineChart,
-  Mail,
+  Inbox,
   ShieldAlert,
   ShieldCheck,
   X,
@@ -18,12 +17,11 @@ import {
 // [path, label, icon]. Paths are the app's existing routes; /dashboard and /phishing are redirect aliases in App.jsx.
 export const NAV_ITEMS = [
   ['/', 'Security Dashboard', LayoutDashboard],
-  ['/email', 'Phishing Email', Mail],
+  ['/mailbox', 'Mailbox', Inbox],
   ['/logins', 'Suspicious Logins', KeyRound],
   ['/investigate', 'AI Investigation', FileSearch],
   ['/response', 'Incident Response', ShieldAlert],
   ['/reports', 'Reports & Analytics', LineChart],
-  ['/evaluation', 'Evaluation', FlaskConical],
 ]
 export const STUDENT_NAV = [['/my-alerts', 'My Alerts', Bell]]
 
@@ -70,7 +68,7 @@ export default function Sidebar({ role, isOpen, onClose, collapsed, onToggleColl
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               Detection engine online
             </div>
-            <p className="mt-1 text-[11px] leading-snug text-slate-500">Demo data. Not connected to a live mail or identity system.</p>
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">Mail: live Gmail via n8n. Sign-ins: simulated (no identity provider connected).</p>
           </div>
         )}
         {!mobile && (

@@ -2,6 +2,9 @@ services:
   traceguard:
     build: .
     ports: ["8000:8000"]
-    volumes: ["tg-data:/data"]
+    environment:
+      - TRACEGUARD_DATA=real          # real mail only, kept across restarts. Use 'demo' for the 38 synthetic scenarios
+      - TRACEGUARD_REAL_USERS=gokulvm.ad24@bitsathy.ac.in
+    volumes: ["tg-data-real:/data"]
 volumes:
-  tg-data:
+  tg-data-real:

@@ -136,7 +136,7 @@ export default function Dashboard() {
           sub={`of ${(k.emails_analyzed ?? 0).toLocaleString()} analyzed · medium risk or above`}
           tone="amber"
           size="lg"
-          onClick={() => navigate('/email')}
+          onClick={() => navigate('/mailbox')}
         />
         <StatCard
           icon={KeyRound}

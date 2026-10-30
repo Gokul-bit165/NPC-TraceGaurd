@@ -1,14 +1,139 @@
 {
-  "source": "synthetic template corpus (team-written, NOT real mail)",
-  "n_train": 2441,
-  "holdout": "unseen template families",
+  "source": "Public mail corpora: Enron, Ling and SpamAssassin legitimate mail; Nigerian_Fraud scam mail as the phishing class; plus 3,000 generated campus-style messages (synthetic, 20% of training). Cleaned and near-duplicate-filtered (dataset/run_preprocess_v2.py).",
+  "n_train": 14887,
+  "holdout": "whole sources never seen in training: Nazario (phishing, 1,204 messages) and CEAS_08 (legitimate, 5,000 of 12,229 sampled) \u2014 this is the headline number",
+  "split": "fold C: split by source; near-duplicates (cosine>=0.8) removed across splits; threshold and calibration chosen on validation only",
+  "trained_at": "2026-10-29",
+  "seed": 42,
+  "decision_threshold_calibrated": 0.04937,
   "metrics": {
-    "n": 559,
-    "precision": 1.0,
-    "recall": 1.0,
-    "f1": 1.0,
-    "false_positive_rate": 0.0,
-    "roc_auc": 1.0
+    "precision": 0.8434,
+    "recall": 0.8679,
+    "false_positive_rate": 0.0388,
+    "roc_auc": 0.9758
   },
-  "warning": "These numbers measure how well the pipeline separates template text. They are not evidence of real-world accuracy. Retrain with scripts/train_text_model.py on the Kaggle dataset."
+  "measured": {
+    "cross_source_test (Nazario + CEAS_08 ham, unseen sources)": {
+      "n": 6204,
+      "n_pos": 1204,
+      "precision": 0.8434,
+      "recall": 0.8679,
+      "false_positive_rate": 0.0388,
+      "f1": 0.8555,
+      "roc_auc": 0.9758,
+      "recall_at_1pct_fpr": 0.7218,
+      "confusion": {
+        "tp": 1045,
+        "fp": 194,
+        "tn": 4806,
+        "fn": 159
+      }
+    },
+    "in_distribution_test (same sources as training, near-duplicates removed; optimistic)": {
+      "n": 1997,
+      "n_pos": 126,
+      "precision": 0.9065,
+      "recall": 1.0,
+      "false_positive_rate": 0.0069,
+      "f1": 0.9509,
+      "roc_auc": 0.9999,
+      "recall_at_1pct_fpr": 1.0,
+      "confusion": {
+        "tp": 126,
+        "fp": 13,
+        "tn": 1858,
+        "fn": 0
+      }
+    },
+    "campus_style_test (SYNTHETIC, 200 generated messages; measures campus-style handling, not real-world accuracy)": {
+      "n": 200,
+      "n_pos": 100,
+      "precision": 0.9091,
+      "recall": 1.0,
+      "false_positive_rate": 0.1,
+      "f1": 0.9524,
+      "roc_auc": 0.994,
+      "recall_at_1pct_fpr": 0.9,
+      "confusion": {
+        "tp": 100,
+        "fp": 10,
+        "tn": 90,
+        "fn": 0
+      }
+    },
+    "harmless_campus_messages_flagged": {
+      "n": 100,
+      "flagged": 10
+    },
+    "advertising_spam_flag_rate (spam is not phishing; informational)": 0.4302,
+    "calibration_on_validation": [
+      {
+        "bin": "0.00-0.05",
+        "n": 1778,
+        "mean_predicted": 0.001,
+        "actual_phishing_rate": 0.001
+      },
+      {
+        "bin": "0.05-0.20",
+        "n": 18,
+        "mean_predicted": 0.085,
+        "actual_phishing_rate": 0.056
+      },
+      {
+        "bin": "0.40-0.60",
+        "n": 1,
+        "mean_predicted": 0.412,
+        "actual_phishing_rate": 1.0
+      },
+      {
+        "bin": "0.80-0.95",
+        "n": 1,
+        "mean_predicted": 0.931,
+        "actual_phishing_rate": 1.0
+      },
+      {
+        "bin": "0.95-1.00",
+        "n": 138,
+        "mean_predicted": 0.999,
+        "actual_phishing_rate": 1.0
+      }
+    ]
+  },
+  "candidates_compared": {
+    "note": "All candidates scored on the same splits and seed. Numbers are recall at 1% false-positive rate on the cross-source test (fold C unless stated); 'not measured' = not run.",
+    "tfidf_logreg (own, SHIPPED)": {
+      "fold_C_recall_at_1pct_fpr": 0.7218,
+      "fold_C_auc": 0.9758,
+      "fold_A_recall_at_1pct_fpr": 0.8048,
+      "fold_B_recall_at_1pct_fpr": 0.2903,
+      "harmless_campus_flagged_of_100": 10
+    },
+    "distilbert (own, GPU fine-tune; not shipped)": {
+      "fold_C_recall_at_1pct_fpr": 0.5598,
+      "fold_C_auc": 0.9557,
+      "fold_A_recall_at_1pct_fpr": 0.6869,
+      "fold_B_recall_at_1pct_fpr": 0.2983,
+      "harmless_campus_flagged_of_100": 0
+    },
+    "ealvaradob/bert-finetuned-phishing rev fa8fb73a (PUBLIC, Apache-2.0, trained by a third party on data we cannot fully inspect; not shipped)": {
+      "fold_C_recall_at_1pct_fpr (CLEAN)": 0.3771,
+      "fold_C_auc": 0.9749,
+      "fold_A_recall_at_1pct_fpr (MAY BE INFLATED: SpamAssassin ham 92% in its training texts)": 0.8571,
+      "fold_B_recall_at_1pct_fpr (MAY BE INFLATED: Nigerian 31%, SpamAssassin 92% in its training texts)": 0.9921,
+      "advertising_spam_flag_rate": 0.9708,
+      "campus_phishing_missed_fold_C_of_100": 20
+    },
+    "public model, top 12 layers briefly fine-tuned (own experiment; weights not saved; not shipped)": {
+      "fold_C_recall_at_1pct_fpr": 0.7575,
+      "fold_C_false_positive_rate_at_val_threshold": 0.0648
+    },
+    "ip_login_model": "not measured (not built; feature pipeline unfinished)"
+  },
+  "not_measured": [
+    "IP / login risk model",
+    "CPU speed of the transformer candidates",
+    "mobile / non-English / image-only mail",
+    "email headers"
+  ],
+  "warning": "Measured on public, older mail collections (Enron, Ling, SpamAssassin, CEAS_08, Nazario, Nigerian_Fraud). The cross-source numbers are the ones to quote; in-distribution numbers are optimistic. Campus-style results come from 200 GENERATED messages and measure only how the model treats campus-style wording. Advertising spam is not labelled phishing. Today's AI-written lures, QR codes and token-theft links are not covered by this data. The public model was compared but is not used. The login/RBA data is artificial."
 }

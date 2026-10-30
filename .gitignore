@@ -41,3 +41,14 @@ dataset/processed_v2/login/
 *.log
 .DS_Store
 Thumbs.db
+
+# large model/data artefacts (re-create with dataset/run_preprocess_v2.py and dataset/scripts_v2)
+models/phishing-bert/
+dataset/external/
+dataset/processed_v2/models/
+dataset/processed_v2/results/*.csv
+backend/data/rba_head.csv
+
+# local secrets
+.env
+backend/.env

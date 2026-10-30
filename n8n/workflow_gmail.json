@@ -1,0 +1,200 @@
+{
+  "name": "TraceGuard Gmail sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -80
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Sync Now (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "traceguard-gmail-sync",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Sync Now (from TraceGuard)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "traceguard-gmail-sync"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 20,
+        "simple": false,
+        "filters": {
+          "q": "newer_than:1d in:inbox"
+        },
+        "options": {}
+      },
+      "name": "Gmail: latest inbox (read-only)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item in = one Gmail message. Output: {recipient, raw_eml, message_id} or nothing (duplicate / unusable).\n// Handles the Gmail node's flattened output (headers{}, text, html) and the raw Gmail shape (payload.headers[]).\nconst seen = $getWorkflowStaticData(\"global\"); seen.ids = seen.ids || [];\nconst b64 = (s) => Buffer.from(String(s || \"\").replace(/-/g, \"+\").replace(/_/g, \"/\"), \"base64\").toString(\"utf8\");\nconst strip = (name, v) => { v = String(v ?? \"\"); const p = name.toLowerCase() + \":\"; return v.toLowerCase().startsWith(p) ? v.slice(p.length).trim() : v.trim(); };\nconst out = [];\nfor (const it of $input.all()) {\n  const m = it.json;\n  const id = m.id;\n  if (!id || seen.ids.includes(id)) continue;\n  const hv = {};\n  if (m.headers && !Array.isArray(m.headers)) for (const [k, v] of Object.entries(m.headers)) hv[k.toLowerCase()] = strip(k, Array.isArray(v) ? v.join(\" \") : v);\n  for (const x of m.payload?.headers ?? []) hv[x.name.toLowerCase()] = x.value;\n  const h = (n) => String(hv[n.toLowerCase()] ?? \"\").replace(/\\r?\\n\\s*/g, \" \");\n  const keep = [\"From\", \"To\", \"Reply-To\", \"Subject\", \"Message-ID\", \"Authentication-Results\", \"Received-SPF\", \"DKIM-Signature\", \"Return-Path\", \"Delivered-To\"];\n  const lines = keep.filter(n => h(n)).map(n => `${n}: ${h(n)}`);\n  if (!hv[\"subject\"] && m.subject) lines.push(`Subject: ${m.subject}`);\n  if (!hv[\"from\"] && m.from?.text) lines.push(`From: ${m.from.text}`);\n  const when = new Date(h(\"Date\") || m.date || Number(m.internalDate) || Date.now());\n  lines.push(`Date: ${(isNaN(when) ? new Date() : when).toUTCString().replace(\"GMT\", \"+0000\")}`);\n\n  let plain = m.text ?? \"\", html = m.html ?? \"\";\n  if (!plain && !html && m.payload) {\n    const walk = (p) => { if (!p) return; if (p.mimeType === \"text/plain\" && p.body?.data) plain += b64(p.body.data); else if (p.mimeType === \"text/html\" && p.body?.data) html += b64(p.body.data); (p.parts ?? []).forEach(walk); };\n    walk(m.payload);\n  }\n  plain = plain || m.snippet || \"\";\n  let ctype, body;\n  if (plain && html) {\n    const bd = \"tgb\" + id;\n    ctype = `multipart/alternative; boundary=\"${bd}\"`;\n    body = `--${bd}\\r\\nContent-Type: text/plain; charset=utf-8\\r\\n\\r\\n${plain}\\r\\n--${bd}\\r\\nContent-Type: text/html; charset=utf-8\\r\\n\\r\\n${html}\\r\\n--${bd}--\\r\\n`;\n  } else if (html) { ctype = \"text/html; charset=utf-8\"; body = html + \"\\r\\n\"; }\n  else { ctype = \"text/plain; charset=utf-8\"; body = plain + \"\\r\\n\"; }\n\n  const rcpt = (h(\"Delivered-To\") || m.to?.value?.[0]?.address || h(\"To\")).replace(/.*<|>.*/g, \"\").split(\",\")[0].trim().toLowerCase();\n  if (!rcpt.includes(\"@\")) continue;\n  seen.ids.push(id); if (seen.ids.length > 2000) seen.ids.splice(0, seen.ids.length - 2000);\n  out.push({ json: { recipient: rcpt, message_id: id, subject: h(\"Subject\") || m.subject || \"\", from: h(\"From\"),\n    raw_eml: lines.join(\"\\r\\n\") + `\\r\\nContent-Type: ${ctype}\\r\\n\\r\\n${body}` } });\n}\nreturn out;"
+      },
+      "name": "Build .eml",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/ingest/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "admin"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-gmail"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({recipient: $json.recipient, raw_eml: $json.raw_eml}) }}",
+        "options": {}
+      },
+      "name": "POST /api/ingest/email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst built = $(\"Build .eml\").all().map(i => i.json);\nreturn [{ json: {\n  fetched: built.length,\n  analysed: rows.filter(r => r.email_id).length,\n  suspicious: rows.filter(r => (r.score ?? 0) >= 50).length,\n  cases: rows.filter(r => r.case_id).map(r => r.case_id),\n  failed: rows.filter(r => r.error).length\n} }];"
+      },
+      "name": "Sync report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Gmail: latest inbox (read-only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Now (manual)": {
+      "main": [
+        [
+          {
+            "node": "Gmail: latest inbox (read-only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Now (from TraceGuard)": {
+      "main": [
+        [
+          {
+            "node": "Gmail: latest inbox (read-only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: latest inbox (read-only)": {
+      "main": [
+        [
+          {
+            "node": "Build .eml",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build .eml": {
+      "main": [
+        [
+          {
+            "node": "POST /api/ingest/email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/ingest/email": {
+      "main": [
+        [
+          {
+            "node": "Sync report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

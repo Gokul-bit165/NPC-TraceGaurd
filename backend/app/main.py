@@ -5,6 +5,7 @@ import copy
 import json
 from contextlib import asynccontextmanager
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -18,14 +19,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from . import reports, scenarios as sc, services
+from . import decision as decisionmod, reports, scenarios as sc, services, simulate
 from .auth import Actor, assert_owns, require_actor, require_admin, require_staff
 from .db import SessionLocal, get_db, init_db
 from .engine import config as cfgmod
 from .engine import explain, respond
 from .engine.baseline import build_baseline
 from .engine.counter import get_cross_user_counter
+from .engine import llm_narrator
 from .engine.email_parse import from_fields, parse_eml
+from .engine.email_signals import analyze_email
 from .engine.pipeline import analyze_case, build_context
 from .engine.queue import get_analysis_queue, start_analysis_queue
 from .engine.text_model import MODEL_DIR, get_model
@@ -38,6 +41,7 @@ from .services import WorkflowError, aware
 async def lifespan(_: FastAPI):
     init_db()
     get_model()          # train/load once so the first request is not slow
+    llm_narrator.configure_from_env()   # optional; off unless TRACEGUARD_LLM_API_KEY and _MODEL are set
     with SessionLocal() as db:
         get_cross_user_counter().warmup_from_db(db)
     q = start_analysis_queue()
@@ -88,6 +92,7 @@ def health(db: Session = Depends(get_db)):
     q = get_analysis_queue()
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat(), "cases": db.scalar(select(func.count(CaseRow.id))),
             "text_model": get_model().meta.get("source", "unknown"), "llm_narrator": explain._llm is not None,
+            "login_source": "simulated" if os.environ.get("TRACEGUARD_DATA", "demo").lower() == "real" else "synthetic demo",
             "queue": q.stats}
 
 
@@ -492,16 +497,171 @@ class EmailIn(BaseModel):
     raw_eml: str
 
 
+_email_ingest_lock = threading.Lock()    # parallel posts for one user would each create their own case
+
+
 @app.post("/api/ingest/email")
 def ingest_email(body: EmailIn, db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
     u = services.resolve_user(db, body.recipient)
     if not u:
         raise HTTPException(404, "recipient is not a known user")
     em = parse_eml(body.raw_eml, u.id)
-    row, an = services.add_email(db, em)
-    c = services.reanalyze_user(db, u.id, actor="ingest")
-    db.commit()
+    with _email_ingest_lock:
+        row, an = services.add_email(db, em)
+        c = services.reanalyze_user(db, u.id, actor="ingest")
+        db.commit()
     return {"email_id": row.id, "score": an.score, "case_id": c.id if c else None, "band": c.band if c else None}
+
+
+# ------------------------------------------------------------------ fetched mail (what n8n / connectors delivered)
+@app.get("/api/emails")
+def list_emails(q: str = "", band: str = "", limit: int = Query(100, le=500), offset: int = 0,
+                db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
+    cfg = cfgmod.get()
+    stmt = select(EmailRow, UserRow).join(UserRow, UserRow.id == EmailRow.user_id, isouter=True)
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(or_(func.lower(EmailRow.sender).like(like), func.lower(EmailRow.subject).like(like), func.lower(UserRow.email).like(like)))
+    if band:
+        stmt = stmt.where(EmailRow.risk_band == band.lower())
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.execute(stmt.order_by(EmailRow.received_at.desc()).limit(limit).offset(offset)).all()
+    cases: dict[str, tuple[int, set]] = {}
+    for c in db.scalars(select(CaseRow).where(CaseRow.user_id.in_({r.user_id for r, _ in rows})).order_by(CaseRow.id)).all():
+        cases[c.user_id] = (c.id, set(json.loads(c.result_json or "{}").get("email_ids", [])))
+    med = cfg["bands"]["medium"][0]
+    items = []
+    for r, u in rows:
+        case_id, ids = cases.get(r.user_id, (None, set()))
+        items.append({"id": r.id, "mailbox": user_brief(u, r.user_id), "received_at": iso(r.received_at), "sender": r.sender, "subject": r.subject,
+                      "score": r.risk, "band": r.risk_band, "probability": r.probability, "campaign_key": r.campaign_key,
+                      "case_id": case_id if r.id in ids else None, "links": len(json.loads(r.links_json or "[]"))})
+    newest = db.scalar(select(func.max(EmailRow.received_at)))
+    return {"total": total, "items": items, "suspicious": db.scalar(select(func.count()).select_from(EmailRow).where(EmailRow.risk >= med)),
+            "mailboxes": db.scalar(select(func.count(func.distinct(EmailRow.user_id)))), "newest": iso(newest) if newest else None,
+            "auto_sync": "every 5 minutes (n8n)"}
+
+
+_ADVICE = {
+    "critical": ["Do not click any link or open attachments in this message.", "Report it to the security team and keep the original message as evidence.",
+                 "If the recipient clicked or replied, reset their password and sign out their sessions.", "Ask an administrator to block the sender domain (needs approval)."],
+    "high": ["Do not click any link in this message.", "Confirm with the recipient whether they interacted with it.",
+             "Report it to the security team; consider blocking the sender domain (needs approval)."],
+    "medium": ["Treat links with caution and verify the sender through another channel before acting.", "Keep it for review if similar messages arrive."],
+    "low": ["No action needed. TraceGuard found no phishing indicators beyond normal mail."],
+}
+
+
+# ------------------------------------------------------------------ simulated login telemetry + decision support
+class SimulateBody(BaseModel):
+    mailbox: str
+    scenario: str = "takeover"
+    email_id: str = ""            # a takeover follows this email; default is the user's highest-scoring one
+
+
+@app.get("/api/simulate/options")
+def simulate_options(db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
+    configured = {e.strip().lower() for e in os.environ.get("TRACEGUARD_REAL_USERS", "").split(",") if e.strip()}
+    real = [u for u in db.scalars(select(UserRow)).all() if u.email.lower() in configured]
+    mailboxes = [{"id": u.id, "email": u.email, "name": u.name} for u in real]
+    return {"scenarios": [{"id": k, "label": v} for k, v in simulate.SCENARIOS.items()], "mailboxes": mailboxes}
+
+
+@app.post("/api/simulate/logins")
+def simulate_logins(body: SimulateBody, db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
+    """Generate simulated sign-ins for a real mailbox (no identity provider is connected) and score them like real ones."""
+    if body.scenario not in simulate.SCENARIOS:
+        raise HTTPException(400, f"scenario must be one of {sorted(simulate.SCENARIOS)}")
+    u = services.resolve_user(db, body.mailbox)
+    if not u:
+        raise HTTPException(404, "mailbox is not a known user")
+    have = db.scalar(select(func.count(LoginRow.id)).where(LoginRow.user_id == u.id)) or 0
+    top = db.get(EmailRow, body.email_id) if body.email_id else None
+    if top is None or top.user_id != u.id:
+        top = db.scalar(select(EmailRow).where(EmailRow.user_id == u.id).order_by(EmailRow.risk.desc(), EmailRow.received_at.desc()))
+    events = simulate.build(body.scenario, u.id, anchor=aware(top.received_at) if top else None, with_baseline=have < 10)
+    q = get_analysis_queue()
+    if not q.is_running():
+        q.start()
+    job = q.enqueue(events)
+    job.done.wait(timeout=60.0)
+    return {"mailbox": u.email, "scenario": body.scenario, "events": len(events), "baseline_added": have < 10, "cases": job.result_cases,
+            "after_email": {"subject": top.subject, "received_at": iso(top.received_at)} if top and body.scenario == "takeover" else None}
+
+
+@app.delete("/api/simulate/logins")
+def clear_simulated_logins(mailbox: str, db: Session = Depends(get_db), a: Actor = Depends(require_admin)):
+    """Remove every sign-in recorded for a real mailbox (all of them are simulated: no identity provider is connected) and re-score."""
+    u = services.resolve_user(db, mailbox)
+    if not u:
+        raise HTTPException(404, "mailbox is not a known user")
+    if u.email.lower() not in {e.strip().lower() for e in os.environ.get("TRACEGUARD_REAL_USERS", "").split(",") if e.strip()}:
+        raise HTTPException(403, "only configured real mailboxes can be cleared")
+    removed = db.query(LoginRow).filter(LoginRow.user_id == u.id).delete()
+    db.commit()
+    case = services.reanalyze_user(db, u.id, actor=a.name)
+    db.commit()
+    return {"mailbox": u.email, "removed": removed, "case_id": case.id if case else None, "band": case.band if case else None}
+
+
+@app.get("/api/cases/{case_id}/decision")
+def case_decision(case_id: int, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
+    c = db.get(CaseRow, case_id)
+    if not c:
+        raise HTTPException(404, "case not found")
+    acts = db.scalars(select(ActionRow).where(ActionRow.case_id == c.id).order_by(ActionRow.order)).all()
+    return decisionmod.build(c, json.loads(c.result_json or "{}"), acts, json.loads(c.narrative_json or "{}"))
+
+
+@app.get("/api/emails/{email_id}/investigation")
+def investigate_email(email_id: str, db: Session = Depends(get_db), a: Actor = Depends(require_staff)):
+    """Investigate one real email: re-run the detector on the stored message and explain every point of the score."""
+    r = db.get(EmailRow, email_id)
+    if not r:
+        raise HTTPException(404, "email not found")
+    cfg = cfgmod.get()
+    an = analyze_email(services.email_from_row(r), cfg)
+    band = cfgmod.band_of(min(an.score, cfg["correlation"]["email_only_ceiling"]), cfg)
+    u = db.get(UserRow, r.user_id)
+    ledger = [e.to_dict() for e in an.ledger]
+    reasons = [e for e in ledger if e["points"] > 0]
+    reasons.sort(key=lambda e: -e["points"])
+    headline = (f"{band.capitalize()} risk: {reasons[0]['label'].lower()}" if reasons and band != "low" else "No phishing indicators found")
+    siblings = db.execute(select(func.count(), func.count(func.distinct(EmailRow.user_id))).where(EmailRow.campaign_key == r.campaign_key)).one() if r.campaign_key else (1, 1)
+    same_sender = db.execute(select(func.count(), func.max(EmailRow.risk)).where(func.lower(EmailRow.sender) == (r.sender or "").lower(), EmailRow.id != r.id)).one()
+    case = None
+    for c in db.scalars(select(CaseRow).where(CaseRow.user_id == r.user_id).order_by(CaseRow.id.desc())).all():
+        if r.id in json.loads(c.result_json or "{}").get("email_ids", []):
+            case = {"id": c.id, "band": c.band, "status": c.status, "correlated": c.correlated}
+            break
+    links = json.loads(r.links_json or "[]")
+    flagged = {(f["href"], f["text"]): f["reason"] for f in an.flagged_links}
+    return {
+        "email": {"id": r.id, "sender": r.sender, "reply_to": r.reply_to, "subject": r.subject, "received_at": iso(r.received_at), "mailbox": user_brief(u, r.user_id),
+                  "preview": r.body_text[:3000], "hidden_text_found": bool(r.hidden_text), "has_headers": r.has_headers, "raw": r.raw[:8000],
+                  "links": [{"href": l["href"], "text": l["text"], "flag": flagged.get((l["href"], l["text"]))} for l in links]},
+        "verdict": {"score": an.score, "band": band, "headline": headline, "reasons": [e["detail"] or e["label"] for e in reasons[:4]]},
+        "analysis": {"probability": an.probability, "terms": an.terms, "ledger": ledger, "flagged_links": an.flagged_links, "auth": an.auth_summary,
+                     "not_evaluated": an.not_evaluated},
+        "context": {"campaign": {"emails": siblings[0], "mailboxes": siblings[1]}, "sender": {"other_emails": same_sender[0], "highest_score": same_sender[1]}},
+        "case": case, "recommendations": _ADVICE.get(band, _ADVICE["low"]),
+    }
+
+
+@app.post("/api/mail/sync")
+def sync_mail(a: Actor = Depends(require_admin)):
+    """'Sync now': asks the n8n Gmail workflow to fetch new mail right away (it also runs on its own every 5 minutes)."""
+    import urllib.error
+    import urllib.request
+    base = os.environ.get("TRACEGUARD_N8N_URL", "http://localhost:5678").rstrip("/")
+    req = urllib.request.Request(f"{base}/webhook/traceguard-gmail-sync", data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            return json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(502, f"n8n answered {exc.code}: is the 'TraceGuard Gmail sync' workflow published?") from exc
+    except Exception as exc:
+        raise HTTPException(502, f"could not reach n8n at {base}") from exc
 
 
 # ------------------------------------------------------------------ scoring configuration

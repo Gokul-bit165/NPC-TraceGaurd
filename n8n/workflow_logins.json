@@ -1,0 +1,103 @@
+{
+  "name": "workflow logins",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "traceguard-logins",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Login webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "traceguard-logins"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accepts ONE event or an array. Works with Entra / Google / IdP exports (field aliases handled).\nconst body = $input.first().json.body ?? $input.first().json;\nconst list = Array.isArray(body) ? body : (body.events ?? [body]);\nconst out = list.map(e => ({\n  user_id: String(e.user_id ?? e.userPrincipalName ?? e.email ?? e.user ?? \"\"),\n  ts: new Date(e.ts ?? e.createdDateTime ?? e.timestamp ?? Date.now()).toISOString(),\n  ip: e.ip ?? e.ipAddress ?? \"\",\n  country: e.country ?? e.location?.countryOrRegion ?? \"\",\n  city: e.city ?? e.location?.city ?? \"\",\n  device: String(e.device ?? e.deviceDetail?.operatingSystem ?? \"\").toLowerCase(),\n  success: e.success ?? (e.status?.errorCode === 0) ?? true,\n  is_attack_ip: false\n})).filter(x => x.user_id);\nreturn [{ json: { batch: out } }];"
+      },
+      "name": "Map to TraceGuard fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/ingest/logins",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "admin"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-connector"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sync",
+              "value": "true"
+            }
+          ]
+        }
+      },
+      "name": "POST /api/ingest/logins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Login webhook": {
+      "main": [
+        [
+          {
+            "node": "Map to TraceGuard fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to TraceGuard fields": {
+      "main": [
+        [
+          {
+            "node": "POST /api/ingest/logins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

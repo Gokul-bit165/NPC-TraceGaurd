@@ -1,0 +1,55 @@
+TRACEGUARD - TEXT MODEL REPORT (short version, 2026-10-29)
+
+MODEL THAT SHIPS
+  TF-IDF word/phrase features + logistic regression (our own), calibrated on the validation set.
+  File: backend/models/text_model.joblib (2.6 MB, CPU only, about 90 ms per email including the full analysis).
+  Explanation: the model's own top terms (exact, not approximate). A missing model file stops the app with a clear message; nothing is
+  retrained or downloaded at run time (set TRACEGUARD_ALLOW_BOOTSTRAP=1 only for tests/demos).
+
+WHY THIS ONE
+  Three candidates were trained/scored on identical splits and seed: our TF-IDF, our DistilBERT (GPU, fp16, peak 2.1 GB), and the public
+  model ealvaradob/bert-finetuned-phishing (rev fa8fb73a, Apache-2.0, used as downloaded). Validation scores were tied (about 0.99 recall at
+  1% false positives for all), so the choice rests on the held-out-source test below. TF-IDF was best of the shippable models and is the
+  smallest and most explainable.
+
+DATA (rebuilt: dataset/processed_v2, script dataset/run_preprocess_v2.py)
+  Label 1 = phishing/scam (Nazario, Nigerian_Fraud). Label 0 = legitimate mail (Enron, Ling, SpamAssassin, CEAS_08 ham).
+  Advertising spam is NOT phishing and was removed from training (kept as a separate informational set).
+  Old files problem: 87% of the old "phishing" class was spam; random row splits leaked near-duplicates (19% of validation rows had a twin
+  in training); source style (lower-cased Enron/Ling text) gave away the label. Fixed: near-duplicate removal (cosine >= 0.8), split by source,
+  style/marker/PII cleaning, shared cleaning code for training and production (backend/app/engine/text_clean.py).
+  Fold C (shipped): train 14,887 rows (2,743 phishing / 12,144 legitimate; 3,000 = generated campus-style messages, 20%).
+  Real phishing training examples are few (1,243 Nigerian scams after de-duplication).
+
+MEASURED RESULTS (shipped model, fold C; threshold and calibration chosen on validation only)
+  Cross-source test, sources never seen in training: Nazario phishing (1,204) + CEAS_08 legitimate (5,000 sampled)
+     precision 0.843  recall 0.868  false-positive rate 3.9%  AUC 0.976  recall at 1% FPR 0.722
+  In-distribution test (same sources, optimistic): precision 0.907 recall 1.000 FPR 0.7%  AUC 0.9999
+  Campus-style test, 200 GENERATED messages: recall 1.00, FPR 10% (10 of 100 harmless campus messages flagged). Not real-world accuracy.
+  Other folds (TF-IDF, recall at 1% FPR): fold A (Nazario + SpamAssassin ham) 0.80; fold B (train on Nazario, test Nigerian scams) 0.29.
+  Compared on the clean fold C (recall at 1% FPR): TF-IDF 0.72, DistilBERT 0.56, public model 0.38 (public model also flags 97% of
+  advertising spam; it was trained to treat spam as phishing). The public model scored higher on folds A/B, but its training texts overlap our
+  data (SpamAssassin ham 92%, Nigerian 31%), so those numbers may be inflated and must not be quoted.
+  Briefly fine-tuning the top half of the public model gave recall 0.76 at 1% FPR on fold C, but the weights were not saved and its FPR was 6.5%.
+
+NOT MEASURED
+  IP/login risk model (feature pipeline not finished, no model built). CPU speed of the transformer candidates. Non-English mail, images,
+  headers, QR codes, AI-written lures. The nine scripted scenarios all keep their expected bands with the shipped model.
+
+KNOWN LIMITS
+  Old public mail (2000-2008); few real phishing examples; false-positive rate across a new mail source was 3.9%, not 1% - expect false alarms
+  on unfamiliar legitimate mail; 10% of harmless campus-style messages were flagged by the text model alone (other signals apply on top).
+  Names in signatures are not masked. Retrain when new labelled campus mail is available (suggested: each term).
+
+REPEAT FROM RAW FILES
+  python dataset/run_preprocess_v2.py
+  python dataset/scripts_v2/run_models.py --fold C --models tfidf,distilbert,hf   (public model must be in models/phishing-bert)
+  python dataset/scripts_v2/report_models.py --folds C,A,B
+  python dataset/scripts_v2/ship_model.py
+
+SAFE TO SAY
+  "We compared several models on sources held out of training and shipped the one with the best recall at a low false-alarm rate. Numbers are
+  from public older mail plus generated campus-style tests; the login data is artificial."
+DO NOT SAY
+  Any accuracy figure from folds A/B for the public model (it may have seen that data), any in-distribution figure as real-world accuracy,
+  that campus-style results are real, that we built the public model, or that an IP/login model exists.

@@ -19,6 +19,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
 
+from . import text_clean
+
 MODEL_DIR = Path(os.environ.get("TRACEGUARD_MODEL_DIR", Path(__file__).resolve().parents[2] / "models"))
 MODEL_PATH = MODEL_DIR / "text_model.joblib"
 METRICS_PATH = MODEL_DIR / "metrics.json"
@@ -72,6 +74,33 @@ class TextModel:
         return joblib.load(path)
 
 
+@dataclass
+class ProductionTextModel(TextModel):
+    """TextModel + the exact input cleaning used in training (text_clean.model_text) + Platt calibration fitted on validation data.
+
+    `predict` / `predict_many` return calibrated probabilities; `top_terms` are the model's own term contributions (exact, not approximate).
+    """
+    platt_a: float = 1.0
+    platt_b: float = 0.0
+
+    def _cal(self, p):
+        p = np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)
+        return 1.0 / (1.0 + np.exp(-(self.platt_a * np.log(p / (1 - p)) + self.platt_b)))
+
+    def predict(self, text: str) -> float:
+        return float(self._cal(super().predict(text_clean.model_text(text))))
+
+    def predict_many(self, texts: list[str]) -> np.ndarray:
+        return self._cal(super().predict_many([text_clean.model_text(t) for t in texts]))
+
+    def top_terms(self, text: str, k: int = 5) -> list[dict]:
+        return super().top_terms(text_clean.model_text(text), k)
+
+
+class ModelMissingError(RuntimeError):
+    pass
+
+
 def bootstrap(save: bool = True) -> TextModel:
     """Train on the synthetic template corpus. Metrics are written with an explicit 'synthetic' label."""
     from . import synth_text
@@ -95,12 +124,20 @@ _cached: Optional[TextModel] = None
 
 
 def get_model() -> TextModel:
+    """Load the shipped model from the local models folder. Never downloads and never retrains silently:
+    a missing or unreadable file raises ModelMissingError. Set TRACEGUARD_ALLOW_BOOTSTRAP=1 (tests, demos) to train the
+    small template-text model instead."""
     global _cached
     if _cached is None:
         try:
             _cached = TextModel.load()
-        except Exception:
-            _cached = bootstrap(save=True)
+        except Exception as exc:
+            if os.environ.get("TRACEGUARD_ALLOW_BOOTSTRAP") == "1":
+                _cached = bootstrap(save=True)
+            else:
+                raise ModelMissingError(
+                    f"Text model not found or unreadable at {MODEL_PATH} ({exc!r}). Restore models/text_model.joblib "
+                    f"(see docs/MODEL_REPORT.txt) or set TRACEGUARD_ALLOW_BOOTSTRAP=1 to use the small template-text model.") from exc
     return _cached
 
 

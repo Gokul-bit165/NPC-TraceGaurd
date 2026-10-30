@@ -8,12 +8,12 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
-import PhishingEmail from './pages/PhishingEmail.jsx'
+import Mailbox from './pages/Mailbox.jsx'
+import MailInvestigation from './pages/MailInvestigation.jsx'
 import Logins from './pages/Logins.jsx'
 import Investigation from './pages/Investigation.jsx'
 import Response from './pages/Response.jsx'
 import Reports from './pages/Reports.jsx'
-import Evaluation from './pages/Evaluation.jsx'
 import MyAlerts from './pages/MyAlerts.jsx'
 
 const COLLAPSE_KEY = 'tg_sidebar_collapsed'
@@ -114,15 +114,16 @@ function Shell({ role, setRoleState }) {
                 <>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Navigate to="/" replace />} />
-                  <Route path="/email" element={<PhishingEmail />} />
-                  <Route path="/phishing" element={<Navigate to="/email" replace />} />
+                  <Route path="/mailbox" element={<Mailbox />} />
+                  <Route path="/email" element={<Navigate to="/mailbox" replace />} />
+                  <Route path="/phishing" element={<Navigate to="/mailbox" replace />} />
                   <Route path="/logins" element={<Logins />} />
+                  <Route path="/investigate/mail/:id" element={<MailInvestigation />} />
                   <Route path="/investigate" element={<Investigation />} />
                   <Route path="/investigate/:id" element={<Investigation />} />
                   <Route path="/response" element={<Response />} />
                   <Route path="/response/:id" element={<Response />} />
                   <Route path="/reports" element={<Reports />} />
-                  <Route path="/evaluation" element={<Evaluation />} />
                   <Route path="/my-alerts" element={<Navigate to="/" replace />} />
                   <Route path="*" element={<NotFound role={role} />} />
                 </>

@@ -1,0 +1,17 @@
+# Optional: run n8n next to TraceGuard.
+#   docker compose -f docker-compose.yml -f docker-compose.n8n.yml up --build
+# n8n: http://localhost:5678   (workflows reach the app at http://traceguard:8000)
+services:
+  traceguard:
+    environment:
+      - TRACEGUARD_N8N_URL=http://n8n:5678   # the product's "Sync now" button calls the Gmail workflow here
+  n8n:
+    image: n8nio/n8n:latest
+    ports: ["5678:5678"]
+    environment:
+      - TRACEGUARD_URL=http://traceguard:8000
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+    volumes: ["n8n-data:/home/node/.n8n"]
+    depends_on: [traceguard]
+volumes:
+  n8n-data:

@@ -1,0 +1,329 @@
+{
+  "name": "TraceGuard collect and prepare",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "traceguard-collect",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Collect (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "traceguard-collect"
+    },
+    {
+      "parameters": {
+        "jsCode": "// COLLECT -> PREPARE. Accepts one record, an array, or {logins|events|emails: [...]}.\n// Understands TraceGuard-native, Entra / Azure AD sign-in, Google / Okta style fields and raw or structured emails.\nconst root = $input.first().json;\nconst body = root.body ?? root;\nlet list = Array.isArray(body) ? body : [...(body.logins ?? []), ...(body.events ?? []), ...(body.emails ?? [])];\nif (!list.length && !Array.isArray(body) && !body.logins && !body.events && !body.emails) list = [body];\n\nconst seen = $getWorkflowStaticData(\"global\"); seen.keys = seen.keys || [];\nconst meta = { received: list.length, logins: 0, emails: 0, duplicates: 0, rejected: [] };\nconst logins = [], emails = [];\n\nconst asBool = (v) => {\n  if (typeof v === \"boolean\") return v;\n  const s = String(v ?? \"\").toLowerCase();\n  if ([\"false\", \"failure\", \"failed\", \"fail\", \"denied\", \"0\", \"error\"].includes(s)) return false;\n  return true;\n};\nconst bad = (i, why) => meta.rejected.push({ index: i, reason: why });\n\nlist.forEach((e, i) => {\n  if (!e || typeof e !== \"object\") return bad(i, \"not an object\");\n  const isEmail = e.raw_eml || e.raw || (e.subject && (e.from || e.text || e.body));\n  if (isEmail) {\n    const rcpt = String(e.recipient ?? e.to?.address ?? e.to?.value?.[0]?.address ?? (Array.isArray(e.to) ? e.to[0] : e.to) ?? \"\").replace(/.*<|>.*/g, \"\").trim().toLowerCase();\n    if (!rcpt.includes(\"@\")) return bad(i, \"email has no valid recipient\");\n    let eml = e.raw_eml ?? e.raw;\n    if (!eml) {\n      const when = new Date(e.date ?? e.ts ?? Date.now()).toUTCString().replace(\"GMT\", \"+0000\");\n      eml = `From: ${e.from ?? \"unknown@unknown\"}\\r\\nTo: ${rcpt}\\r\\nSubject: ${e.subject ?? \"\"}\\r\\nDate: ${when}\\r\\nContent-Type: text/plain\\r\\n\\r\\n${e.text ?? e.body ?? \"\"}\\r\\n`;\n    }\n    meta.emails++;\n    return emails.push({ recipient: rcpt, raw_eml: String(eml) });\n  }\n  const user = String(e.user_id ?? e.userPrincipalName ?? e.user ?? e.email ?? e.actor?.alternateId ?? \"\").trim().toLowerCase();\n  if (!user) return bad(i, \"login has no user\");\n  const t = new Date(e.ts ?? e.createdDateTime ?? e.timestamp ?? e.published ?? Date.now());\n  if (isNaN(t)) return bad(i, \"unparseable timestamp\");\n  const os = e.deviceDetail?.operatingSystem ?? e.client?.device ?? \"\";\n  const br = e.deviceDetail?.browser ?? e.client?.userAgent?.browser ?? \"\";\n  const device = String(e.device ?? (os || br ? `${os}|${br}` : \"\")).toLowerCase().replace(/\\s+/g, \"\");\n  const ip = String(e.ip ?? e.ipAddress ?? e.client?.ipAddress ?? \"\").trim();\n  const row = {\n    user_id: user,\n    ts: t.toISOString(),\n    ip,\n    country: String(e.country ?? e.location?.countryOrRegion ?? e.client?.geographicalContext?.country ?? \"\").trim().toUpperCase().slice(0, 2),\n    city: String(e.city ?? e.location?.city ?? e.client?.geographicalContext?.city ?? \"\").trim(),\n    device,\n    success: asBool(e.success ?? (e.status?.errorCode !== undefined ? e.status.errorCode === 0 : undefined) ?? e.outcome?.result),\n    is_attack_ip: false\n  };\n  const key = `${row.user_id}|${row.ts}|${row.ip}`;\n  if (seen.keys.includes(key)) { meta.duplicates++; return; }\n  seen.keys.push(key); if (seen.keys.length > 5000) seen.keys.splice(0, seen.keys.length - 5000);\n  meta.logins++;\n  logins.push(row);\n});\n\nconst out = [];\nif (logins.length) out.push({ json: { kind: \"logins\", batch: logins, meta } });\nemails.forEach(m => out.push({ json: { kind: \"email\", ...m, meta } }));\nif (!out.length) out.push({ json: { kind: \"none\", meta } });\nreturn out;"
+      },
+      "name": "Prepare & validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "logins",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "logins"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "nothing valid"
+        }
+      },
+      "name": "Route by type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/ingest/logins",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "admin"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-collector"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch) }}",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sync",
+              "value": "true"
+            }
+          ]
+        }
+      },
+      "name": "POST /api/ingest/logins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/ingest/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "admin"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-collector"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({recipient: $json.recipient, raw_eml: $json.raw_eml}) }}",
+        "options": {}
+      },
+      "name": "POST /api/ingest/email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "name": "Nothing valid",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        740,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "name": "Join results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        980,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $(\"Prepare & validate\").first().json.meta;\nconst results = $input.all().map(i => i.json).filter(j => j && !j.kind);\nconst logins = results.filter(r => r.stored !== undefined);\nconst mails = results.filter(r => r.email_id !== undefined);\nreturn [{ json: {\n  ok: true,\n  received: meta.received,\n  prepared: { logins: meta.logins, emails: meta.emails },\n  duplicates_skipped: meta.duplicates,\n  rejected: meta.rejected,\n  logins_stored: logins.reduce((n, r) => n + r.stored, 0),\n  cases_opened: logins.flatMap(r => r.cases ?? []).length + mails.filter(m => m.case_id).length,\n  emails_scored: mails.map(m => ({ email_id: m.email_id, score: m.score, band: m.band, case_id: m.case_id }))\n} }];"
+      },
+      "name": "Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1420,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Collect (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Prepare & validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare & validate": {
+      "main": [
+        [
+          {
+            "node": "Route by type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by type": {
+      "main": [
+        [
+          {
+            "node": "POST /api/ingest/logins",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST /api/ingest/email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nothing valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/ingest/logins": {
+      "main": [
+        [
+          {
+            "node": "Join results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /api/ingest/email": {
+      "main": [
+        [
+          {
+            "node": "Join results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Nothing valid": {
+      "main": [
+        [
+          {
+            "node": "Join results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Join results": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

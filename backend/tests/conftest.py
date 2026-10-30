@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 _tmp = tempfile.mkdtemp(prefix="traceguard-test-")
 os.environ["TRACEGUARD_DB"] = f"sqlite:///{_tmp}/test.db"
 os.environ["TRACEGUARD_MODEL_DIR"] = f"{_tmp}/models"
+os.environ["TRACEGUARD_ALLOW_BOOTSTRAP"] = "1"   # tests use the small template-text model in a temp folder
 
 FIXED_NOW = datetime(2026, 1, 15, 15, 0, tzinfo=timezone.utc)
 

@@ -17,8 +17,10 @@ import {
   ShieldAlert,
   User,
   X,
+  FlaskConical,
 } from 'lucide-react'
 import api from '../api.js'
+import SimulateLogins from '../components/SimulateLogins.jsx'
 import {
   Band,
   Card,
@@ -57,6 +59,7 @@ export default function Logins() {
 
   // Fetch facets (distinct countries and devices)
   const { data: facets } = useApi(() => api.get('/facets'))
+  const { data: health } = useApi(() => api.get('/health'))
 
   // Build API query params
   const queryParams = {
@@ -172,6 +175,8 @@ export default function Logins() {
         title="Suspicious Login Monitoring"
         description="Every sign-in is evaluated dynamically against the user's historical behavioral baseline: typical countries, cities, devices, active hours, and rapid failure sequences."
         right={
+          <>
+          <SimulateLogins onDone={() => reload()} />
           <button
             type="button"
             onClick={handleExportCsv}
@@ -182,8 +187,16 @@ export default function Logins() {
             <Download size={14} className={isExporting ? 'animate-spin' : ''} />
             <span>{isExporting ? 'Exporting…' : 'Export CSV'}</span>
           </button>
+          </>
         }
       />
+
+      {health?.login_source === 'simulated' && (
+        <div className="flex gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <FlaskConical size={16} className="mt-0.5 shrink-0" />
+          <p><b className="font-semibold">Simulated sign-ins.</b> No identity provider is connected, so these logs are generated for your real mailbox with the Simulate logins button. The email side of every case is real.</p>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <Card>

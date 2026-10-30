@@ -1,0 +1,110 @@
+{
+  "name": "workflow alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ ($env.TRACEGUARD_URL || 'http://host.docker.internal:8000') }}/api/cases",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Role",
+              "value": "analyst"
+            },
+            {
+              "name": "X-User",
+              "value": "n8n-connector"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "GET /api/cases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = $getWorkflowStaticData(\"global\"); seen.ids = seen.ids || [];\nconst items = $input.first().json.items ?? [];\nconst fresh = items.filter(c => [\"high\", \"critical\"].includes(String(c.band).toLowerCase()) && !seen.ids.includes(c.id));\nfresh.forEach(c => seen.ids.push(c.id));\nreturn fresh.map(c => ({ json: { text: `TraceGuard ${String(c.band).toUpperCase()} ${c.score}: case #${c.id} for ${c.user?.name}` } }));"
+      },
+      "name": "Only new High/Critical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Send to Slack / Teams / email (replace this node)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [
+        [
+          {
+            "node": "GET /api/cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /api/cases": {
+      "main": [
+        [
+          {
+            "node": "Only new High/Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only new High/Critical": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack / Teams / email (replace this node)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

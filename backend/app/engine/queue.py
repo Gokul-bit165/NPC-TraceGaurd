@@ -111,6 +111,7 @@ class AnalysisQueue:
                 # Score new login
                 risk, band, flags = services.score_new_login(db, ev, cfg)
                 services.add_login(db, ev, risk, band, flags)
+                db.flush()      # sessions have autoflush off: without this, later events in the batch are scored without the earlier ones
                 touched.add(ev.user_id)
 
             db.flush()

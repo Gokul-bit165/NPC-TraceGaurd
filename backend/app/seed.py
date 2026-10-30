@@ -6,6 +6,7 @@ Run:  python -m app.seed --reset
 from __future__ import annotations
 
 import argparse
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -178,9 +179,27 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reset", action="store_true", help="drop and recreate all tables first")
     args = ap.parse_args()
+    if os.environ.get("TRACEGUARD_DATA", "demo").lower() == "real":
+        # Real mode: no synthetic scenarios, and the database is kept across restarts (--reset is ignored).
+        init_db()
+        with SessionLocal() as db:
+            register_real_users(db)
+        print("real-data mode: no synthetic data seeded")
+        return
     reset_db() if args.reset else init_db()
     with SessionLocal() as db:
         seed(db)
+        register_real_users(db)
+
+
+def register_real_users(db) -> None:
+    """TRACEGUARD_REAL_USERS=a@x.edu,b@y.edu registers real mailboxes so ingested mail for them is accepted (survives --reset)."""
+    from .models import UserRow
+    for email in filter(None, (e.strip().lower() for e in os.environ.get("TRACEGUARD_REAL_USERS", "").split(","))):
+        uid = "u-" + email.split("@")[0].replace(".", "-")
+        if not db.get(UserRow, uid):
+            db.add(UserRow(id=uid, name=email.split("@")[0].replace(".", " ").title(), email=email, dept="", role="student"))
+    db.commit()
 
 
 if __name__ == "__main__":

@@ -118,7 +118,17 @@ def signal_frequency(db: Session) -> list[dict]:
                 labels[e["code"]] = e["label"]
                 if verdict.get(cid) == "false_positive":
                     fp[e["code"]] += 1
-    return [{"code": c, "label": labels[c], "cases": n, "false_positive_cases": fp.get(c, 0)} for c, n in freq.most_common(14)]
+    return [
+        {
+            "code": c,
+            "label": labels.get(c, c),
+            "signal": labels.get(c, c),
+            "count": n,
+            "cases": n,
+            "false_positive_cases": fp.get(c, 0),
+        }
+        for c, n in freq.most_common(14)
+    ]
 
 
 def reports(db: Session, days: int = 30) -> dict:
@@ -127,23 +137,52 @@ def reports(db: Session, days: int = 30) -> dict:
     users = {u.id: u for u in db.scalars(select(UserRow)).all()}
     by_band_day: dict[str, dict[str, int]] = defaultdict(lambda: {b: 0 for b in BANDS})
     for created, band in db.execute(select(CaseRow.created_at, CaseRow.band).where(CaseRow.created_at >= since)):
-        by_band_day[_day(created)][band] += 1
-    trend = [{"day": d[5:], **v} for d, v in sorted(by_band_day.items())]
+        b = band if band in BANDS else "low"
+        by_band_day[_day(created)][b] += 1
+    trend = [{"day": d[5:], **{b: v.get(b, 0) for b in BANDS}} for d, v in sorted(by_band_day.items())]
+
+    open_counts = dict(
+        db.execute(
+            select(CaseRow.user_id, func.count(CaseRow.id))
+            .where(CaseRow.status.in_(("open", "investigating")))
+            .group_by(CaseRow.user_id)
+        ).all()
+    )
     risky = []
+    top_users = []
     for uid, mx, n in db.execute(select(CaseRow.user_id, func.max(CaseRow.score), func.count(CaseRow.id)).group_by(CaseRow.user_id).order_by(func.max(CaseRow.score).desc()).limit(15)):
         u = users.get(uid)
-        risky.append({"user_id": uid, "user": u.name if u else uid, "dept": u.dept if u else "", "max_score": mx, "cases": n})
+        op_cases = open_counts.get(uid, 0)
+        u_name = u.name if u and u.name else uid
+        u_email = u.email if u and u.email else (f"{uid}@traceguard.internal" if not uid.startswith("u-") else f"{uid[2:]}@traceguard.internal")
+        u_dept = u.dept if u and u.dept else ""
+        item = {
+            "user_id": uid,
+            "user": u_name,
+            "name": u_name,
+            "email": u_email,
+            "dept": u_dept,
+            "department": u_dept,
+            "max_score": mx or 0,
+            "cases": n or 0,
+            "open_cases": op_cases if op_cases > 0 else n,
+        }
+        risky.append(item)
+        top_users.append(item)
     dept = defaultdict(lambda: {"cases": 0, "high_or_critical": 0})
     for uid, band in db.execute(select(CaseRow.user_id, CaseRow.band)):
-        d = users[uid].dept if uid in users else "Unknown"
+        d = users[uid].dept if uid in users and users[uid].dept else "Unknown"
         dept[d]["cases"] += 1
         dept[d]["high_or_critical"] += 1 if band in ("high", "critical") else 0
     verdicts = dict(db.execute(select(FeedbackRow.verdict, func.count(FeedbackRow.id)).group_by(FeedbackRow.verdict)).all())
     history = db.scalars(select(AuditRow).order_by(AuditRow.ts.desc(), AuditRow.id.desc()).limit(40)).all()
     return {
-        "trend": trend, "risky_users": risky,
+        "trend": trend,
+        "risky_users": risky,
+        "top_users": top_users,
         "departments": sorted(({"dept": k, **v} for k, v in dept.items()), key=lambda x: -x["high_or_critical"]),
-        "signals": signal_frequency(db), "verdicts": {"true_positive": verdicts.get("true_positive", 0), "false_positive": verdicts.get("false_positive", 0)},
+        "signals": signal_frequency(db),
+        "verdicts": {"true_positive": verdicts.get("true_positive", 0), "false_positive": verdicts.get("false_positive", 0)},
         "history": [{"ts": iso(a.ts), "actor": a.actor, "role": a.role, "event": a.event, "case_id": a.case_id, "detail": a.detail} for a in history],
         "overview": overview(db)["triage"],
     }

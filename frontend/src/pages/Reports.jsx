@@ -43,10 +43,17 @@ import {
   when,
 } from '../ui.jsx'
 import { useApi } from '../hooks/useApi.js'
-import { useChartTheme } from '../theme.jsx'
+import { useChartTheme, SERIES } from '../theme.jsx'
 import { exportToCsv } from '../utils/exportUtils.js'
 import CampaignModal from '../components/CampaignModal.jsx'
 import DailySummaryModal from '../components/DailySummaryModal.jsx'
+
+const DEFAULT_SERIES = {
+  critical: '#E11D48',
+  high: '#F97316',
+  medium: '#F59E0B',
+  low: '#10B981',
+}
 
 export default function Reports() {
   const ct = useChartTheme()
@@ -57,6 +64,14 @@ export default function Reports() {
   const [activeCampaignKey, setActiveCampaignKey] = useState(null)
   const [showDailySummary, setShowDailySummary] = useState(false)
 
+  // Safe color resolution with fallbacks for critical, high, medium, low
+  const chartColors = {
+    critical: ct?.colors?.critical || SERIES?.critical || DEFAULT_SERIES.critical,
+    high: ct?.colors?.high || SERIES?.high || DEFAULT_SERIES.high,
+    medium: ct?.colors?.medium || SERIES?.medium || DEFAULT_SERIES.medium,
+    low: ct?.colors?.low || SERIES?.low || DEFAULT_SERIES.low,
+  }
+
   // Fetch reports data
   const { data: r, error, loading, reload } = useApi(
     (signal) => api.get('/reports', { params: { days }, signal }),
@@ -65,6 +80,37 @@ export default function Reports() {
 
   // Fetch campaigns data
   const { data: camps, reload: reloadCampaigns } = useApi(() => api.get('/campaigns'))
+
+  // Safe normalization of datasets
+  const campsList = camps || []
+
+  const trendData = (r?.trend || []).map((item) => ({
+    day: item?.day || '',
+    critical: Number(item?.critical) || 0,
+    high: Number(item?.high) || 0,
+    medium: Number(item?.medium) || 0,
+    low: Number(item?.low) || 0,
+  }))
+
+  const topUsers = (r?.top_users || r?.risky_users || []).map((u) => ({
+    email:
+      u?.email ||
+      (u?.user_id
+        ? u.user_id.includes('@')
+          ? u.user_id
+          : `${u.user_id}@traceguard.internal`
+        : 'unknown@traceguard.internal'),
+    name: u?.name || u?.user || u?.user_id || 'Unknown User',
+    department: u?.department || u?.dept || 'General Campus',
+    open_cases: u?.open_cases ?? u?.cases ?? 0,
+    max_score: u?.max_score ?? 0,
+  }))
+
+  const signals = (r?.signals || []).map((s) => ({
+    signal: s?.signal || s?.label || s?.code || 'Unknown Signal',
+    count: s?.count ?? s?.cases ?? 0,
+    cases: s?.cases ?? s?.count ?? 0,
+  }))
 
   // Open Campaign Detail View modal
   const openCampaignDetail = async (camp) => {
@@ -86,7 +132,7 @@ export default function Reports() {
 
   // Export handlers
   const exportTrend = () => {
-    if (!r?.trend?.length) return
+    if (!trendData.length) return
     const cols = [
       { key: 'day', label: 'Day' },
       { key: 'critical', label: 'Critical' },
@@ -94,11 +140,11 @@ export default function Reports() {
       { key: 'medium', label: 'Medium' },
       { key: 'low', label: 'Low' },
     ]
-    exportToCsv(r.trend, `traceguard-risk-trend-${days}d.csv`, cols)
+    exportToCsv(trendData, `traceguard-risk-trend-${days}d.csv`, cols)
   }
 
   const exportCampaigns = () => {
-    if (!camps?.length) return
+    if (!campsList.length) return
     const cols = [
       { key: 'key', label: 'Campaign Key' },
       { key: 'subject', label: 'Email Subject' },
@@ -109,21 +155,21 @@ export default function Reports() {
       { key: 'first_seen', label: 'First Detected' },
       { key: 'last_seen', label: 'Last Detected' },
     ]
-    exportToCsv(camps, `traceguard-phishing-campaigns.csv`, cols)
+    exportToCsv(campsList, `traceguard-phishing-campaigns.csv`, cols)
   }
 
   const exportSignals = () => {
-    if (!r?.signals?.length) return
+    if (!signals.length) return
     const cols = [
       { key: 'signal', label: 'Risk Signal' },
       { key: 'count', label: 'Trigger Frequency' },
       { key: 'cases', label: 'Incident Cases Involved' },
     ]
-    exportToCsv(r.signals, `traceguard-signal-frequencies.csv`, cols)
+    exportToCsv(signals, `traceguard-signal-frequencies.csv`, cols)
   }
 
   const exportHighRiskUsers = () => {
-    if (!r?.top_users?.length) return
+    if (!topUsers.length) return
     const cols = [
       { key: 'email', label: 'User Email' },
       { key: 'name', label: 'User Full Name' },
@@ -131,7 +177,7 @@ export default function Reports() {
       { key: 'open_cases', label: 'Active Incidents' },
       { key: 'max_score', label: 'Max Observed Score' },
     ]
-    exportToCsv(r.top_users, `traceguard-highest-risk-users.csv`, cols)
+    exportToCsv(topUsers, `traceguard-highest-risk-users.csv`, cols)
   }
 
   if (loading && !r) return <Spinner message="Aggregating telemetry & audit metrics…" />
@@ -198,12 +244,12 @@ export default function Reports() {
             </span>
           }
         >
-          {r.trend?.length === 0 ? (
+          {trendData.length === 0 ? (
             <Empty>No historical incident records in selected timeframe.</Empty>
           ) : (
             <div className="pt-2">
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={r.trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" vertical={false} />
                   <XAxis
                     dataKey="day"
@@ -232,26 +278,26 @@ export default function Reports() {
                     dataKey="critical"
                     name="Critical"
                     stackId="a"
-                    fill={ct.colors.critical}
+                    fill={chartColors.critical}
                     radius={[0, 0, 0, 0]}
                   />
                   <Bar
                     dataKey="high"
                     name="High"
                     stackId="a"
-                    fill={ct.colors.high}
+                    fill={chartColors.high}
                   />
                   <Bar
                     dataKey="medium"
                     name="Medium"
                     stackId="a"
-                    fill={ct.colors.medium}
+                    fill={chartColors.medium}
                   />
                   <Bar
                     dataKey="low"
                     name="Low"
                     stackId="a"
-                    fill={ct.colors.low}
+                    fill={chartColors.low}
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>
@@ -341,7 +387,7 @@ export default function Reports() {
             </div>
           }
         >
-          {!camps?.length ? (
+          {!campsList.length ? (
             <Empty>No active phishing campaigns identified.</Empty>
           ) : (
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
@@ -355,7 +401,7 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-600/40">
-                  {camps.map((c) => (
+                  {campsList.map((c) => (
                     <tr
                       key={c.key}
                       onClick={() => openCampaignDetail(c)}
@@ -416,7 +462,7 @@ export default function Reports() {
             </button>
           }
         >
-          {!r.signals?.length ? (
+          {!signals.length ? (
             <Empty>No signal triggers logged in this window.</Empty>
           ) : (
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
@@ -429,7 +475,7 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-600/40">
-                  {r.signals.map((s, idx) => (
+                  {signals.map((s, idx) => (
                     <tr key={idx} className="hover:bg-ink-700/20">
                       <td className="td font-mono font-medium text-slate-200">
                         {s.signal}
@@ -464,7 +510,7 @@ export default function Reports() {
           </button>
         }
       >
-        {!r.top_users?.length ? (
+        {!topUsers.length ? (
           <Empty>No elevated user accounts detected.</Empty>
         ) : (
           <div className="overflow-x-auto">
@@ -479,8 +525,8 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-600/40">
-                {r.top_users.map((u) => (
-                  <tr key={u.email} className="hover:bg-ink-700/30">
+                {topUsers.map((u, idx) => (
+                  <tr key={u.email || idx} className="hover:bg-ink-700/30">
                     <td className="td">
                       <div className="font-semibold text-slate-100">{u.name}</div>
                       <div className="text-[11px] font-mono text-slate-400">{u.email}</div>

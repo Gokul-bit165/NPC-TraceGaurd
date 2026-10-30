@@ -76,6 +76,7 @@ export function useChartTheme() {
     const c = CHART[theme] || CHART.dark
     return {
       ...c,
+      colors: SERIES,
       tooltip: {
         contentStyle: { background: c.tooltipBg, border: `1px solid ${c.tooltipBorder}`, borderRadius: 8, fontSize: 12, color: c.text, boxShadow: 'var(--shadow-pop)' },
         labelStyle: { color: c.muted, fontWeight: 600, marginBottom: 4 },
